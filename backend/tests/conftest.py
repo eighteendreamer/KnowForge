@@ -22,6 +22,52 @@ PASSWORD_HASH = hash_password(TEST_PASSWORD)
 
 
 @pytest.fixture(scope="session")
+def payment_keys() -> dict[str, str]:
+    """一次生成 RSA 材料给支付相关测试复用；2048 位密钥对每次现算要上百毫秒。
+
+    这里全是本地自造的假密钥，不含任何真实商户凭据。
+    """
+    import base64
+    import datetime
+
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.x509.oid import NameOID
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    now = datetime.datetime.now(datetime.UTC)
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "KnowForge Test")])
+    certificate = (
+        x509.CertificateBuilder()
+        .subject_name(name)
+        .issuer_name(name)
+        .public_key(key.public_key())
+        .serial_number(0x1234ABCD)
+        .not_valid_before(now - datetime.timedelta(days=1))
+        .not_valid_after(now + datetime.timedelta(days=1))
+        .sign(key, hashes.SHA256())
+    )
+    private_der = key.private_bytes(
+        serialization.Encoding.DER, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
+    )
+    public_der = key.public_key().public_bytes(
+        serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo
+    )
+    return {
+        "private_pem": key.private_bytes(
+            serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
+        ).decode(),
+        "private_bare": base64.b64encode(private_der).decode(),
+        "public_pem": key.public_key()
+        .public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo)
+        .decode(),
+        "public_bare": base64.b64encode(public_der).decode(),
+        "cert_pem": certificate.public_bytes(serialization.Encoding.PEM).decode(),
+    }
+
+
+@pytest.fixture(scope="session")
 def qdrant_collection():
     name = "knowforge_test_" + uuid4().hex
     yield name

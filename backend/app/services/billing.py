@@ -1,9 +1,11 @@
+from collections.abc import Sequence
 from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import BalanceTransaction, RechargeChannel, RechargePackage
+from app.services.payments import credentials as channel_credentials
 
 
 async def balance_cent(session: AsyncSession, account_id: int) -> int:
@@ -47,14 +49,15 @@ def package_view(row: RechargePackage) -> dict[str, Any]:
     }
 
 
-def channel_view(row: RechargeChannel) -> dict[str, Any]:
-    # 渠道密钥只写不读：管理端也只看有没有配过，不回显任何片段。
+def channel_view(row: RechargeChannel, credentials: Sequence[dict[str, Any]] = ()) -> dict[str, Any]:
+    """渠道视图。密钥只回显指纹与版本，配置完整性由已存的键名直接推导，不给调用方漏传的机会。"""
     return {
         "id": row.id,
         "code": row.code,
         "display_name": row.display_name,
-        "merchant_id": row.merchant_id,
-        "secret_configured": row.secret is not None,
+        "channel_type": row.channel_type,
         "enabled": row.enabled,
         "updated_at": row.updated_at,
+        "credentials": list(credentials),
+        "configuration": channel_credentials.state(row.channel_type, [item["key"] for item in credentials]),
     }

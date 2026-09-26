@@ -407,6 +407,22 @@ def configuration_error(channel_type: str, present: Iterable[str]) -> str | None
     return None
 
 
+def describe(channel_type: str, key: str) -> tuple[str, bool]:
+    """配置项的中文名与"是否密钥"。历史遗留键也走这里，保证迁移后的旧值仍能被列出来。"""
+    field = field_map(channel_type).get(key)
+    if field is not None:
+        return field.label, field.secret
+    return LEGACY_LABELS.get(key, key), key == "legacy_secret"
+
+
+def validate_value(channel_type: str, key: str, value: str) -> str:
+    """单项校验。迁移回填和"只改一个字段"的路径都要用它，避免为了验一项而构造整份输入。"""
+    fields = field_map(channel_type)
+    if key not in fields:
+        raise ValueError(f"{channel_type} 渠道没有这个配置项：{key}")
+    return _validate(fields[key], value)
+
+
 def normalize_input(channel_type: str, values: Mapping[str, str | None]) -> dict[str, str]:
     """校验调用方给出的键并返回规范化后的值（加密前形态）。
 

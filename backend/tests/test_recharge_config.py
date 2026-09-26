@@ -1,6 +1,14 @@
 import pytest
 
-SECRET = "2088121200000000-private-key-material"
+
+def alipay_credentials(payment_keys) -> dict[str, str]:
+    return {
+        "app_id": "2021000000000000",
+        "gateway_url": "https://openapi.alipay.com/gateway.do",
+        "app_private_key": payment_keys["private_pem"],
+        "alipay_public_key": payment_keys["public_pem"],
+        "notify_url": "https://pay.example.test/v1/payments/notify/alipay",
+    }
 
 
 async def create_package(context, label="标准档 ¥100", amount_cent=10000, **extra):
@@ -17,13 +25,13 @@ async def create_package(context, label="标准档 ¥100", amount_cent=10000, **
     )
 
 
-async def create_channel(context, code="alipay", **extra):
+async def create_channel(context, payment_keys, code="alipay", **extra):
     body = {
         "code": code,
         "display_name": "支付宝",
-        "merchant_id": "2088121200000000",
-        "secret": SECRET,
+        "channel_type": "alipay",
         "enabled": True,
+        "credentials": alipay_credentials(payment_keys),
         **extra,
     }
     return await context["client"].post(
@@ -84,53 +92,65 @@ async def test_package_validation_is_fail_closed(context, body):
     assert response.status_code == 400
 
 
-async def test_channel_secret_is_write_only(context):
+async def test_channel_secret_material_never_leaves_the_server(context, payment_keys):
     client = context["client"]
-    created = await create_channel(context)
+    created = await create_channel(context, payment_keys)
     assert created.status_code == 200, created.text
     row = created.json()["data"]
-    assert row["secret_configured"] is True and row["enabled"] is True
-    assert SECRET not in created.text
-    admin_listed = await client.get("/v1/admin/recharge/channels", headers=context["admin_headers"])
-    assert SECRET not in admin_listed.text and '"secret":' not in admin_listed.text
+    assert row["configuration"]["complete"] is True and row["enabled"] is True
+    listed = await client.get("/v1/admin/recharge/channels", headers=context["admin_headers"])
+    private = next(
+        item for item in listed.json()["data"]["items"][0]["credentials"] if item["key"] == "app_private_key"
+    )
+    # 密钥项只回显指纹与版本；非密钥项（AppID、回调地址）要能看见原文，否则运营无法确认是哪个环境。
+    assert private["secret"] is True and private["value"] is None and private["fingerprint"]
+    assert payment_keys["private_pem"] not in created.text
+    assert payment_keys["private_pem"] not in listed.text
+    assert '"app_private_key"' in listed.text
+    app_id = next(
+        item for item in listed.json()["data"]["items"][0]["credentials"] if item["key"] == "app_id"
+    )
+    assert app_id["secret"] is False and app_id["value"] == "2021000000000000"
     wallet = await client.get("/v1/portal/wallet", headers=context["customer_headers"])
     assert wallet.json()["data"]["channels"] == [{"code": "alipay", "display_name": "支付宝"}]
-    assert "merchant_id" not in wallet.text
+    assert "app_id" not in wallet.text and "credentials" not in wallet.text
 
 
-async def test_channel_secret_empty_string_clears_and_omitting_keeps(context):
+async def test_channel_credentials_are_never_decrypted_for_the_list(context, payment_keys, monkeypatch):
+    """列表面板只要指纹，把密钥类凭据解密出来没有任何用处，也就不必冒这个险。"""
+    from app.services.payments import crypto
+
+    await create_channel(context, payment_keys)
+    calls: list[str] = []
+    real = crypto.open_secret
+
+    def spy(master, channel, key_name, version, blob, label):
+        calls.append(key_name)
+        return real(master, channel, key_name, version, blob, label)
+
+    monkeypatch.setattr(crypto, "open_secret", spy)
+    listed = await context["client"].get("/v1/admin/recharge/channels", headers=context["admin_headers"])
+    assert listed.status_code == 200
+    # 支付宝公钥按规格是"非密钥项"，它本来就是要给运营核对的；私钥才连解密都不发生。
+    assert "app_private_key" not in calls
+    assert {"app_id", "alipay_public_key", "notify_url"} <= set(calls)
+
+
+async def test_channel_code_and_type_are_immutable_and_unique(context, payment_keys):
     client = context["client"]
-    channel_id = (await create_channel(context)).json()["data"]["id"]
-    keep = await client.patch(
-        f"/v1/admin/recharge/channels/{channel_id}",
-        headers=context["admin_headers"],
-        json={"display_name": "支付宝", "merchant_id": "2088121200000000", "enabled": True},
-    )
-    assert keep.json()["data"]["secret_configured"] is True
-    clear = await client.patch(
-        f"/v1/admin/recharge/channels/{channel_id}",
-        headers=context["admin_headers"],
-        json={"display_name": "支付宝", "merchant_id": None, "secret": "", "enabled": False},
-    )
-    assert clear.json()["data"]["secret_configured"] is False
-    assert clear.json()["data"]["enabled"] is False
-    assert clear.json()["data"]["merchant_id"] is None
-    wallet = await client.get("/v1/portal/wallet", headers=context["customer_headers"])
-    assert wallet.json()["data"]["channels"] == []
-
-
-async def test_channel_code_is_immutable_and_unique(context):
-    client = context["client"]
-    channel_id = (await create_channel(context)).json()["data"]["id"]
-    with_code = await client.patch(
-        f"/v1/admin/recharge/channels/{channel_id}",
-        headers=context["admin_headers"],
-        json={"code": "wechat", "display_name": "微信支付", "enabled": True},
-    )
-    assert with_code.status_code == 400
-    duplicate = await create_channel(context)
+    channel_id = (await create_channel(context, payment_keys)).json()["data"]["id"]
+    for body in (
+        {"code": "wechat"},
+        {"channel_type": "stripe"},
+        {"display_name": "支付宝", "merchant_id": "2088121200000000"},
+    ):
+        rejected = await client.patch(
+            f"/v1/admin/recharge/channels/{channel_id}", headers=context["admin_headers"], json=body
+        )
+        assert rejected.status_code == 400, body
+    duplicate = await create_channel(context, payment_keys)
     assert duplicate.status_code == 409
-    bad = await create_channel(context, code="支付宝")
+    bad = await create_channel(context, payment_keys, code="支付宝")
     assert bad.status_code == 400
 
 
