@@ -1,4 +1,5 @@
 from collections.abc import Mapping
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -180,6 +181,11 @@ async def patch_channel(
         user.id,
     )
     changed.extend(f"credentials.{key}" for key in applied["rotated"] + applied["cleared"])
+    if applied["rotated"] or applied["cleared"]:
+        # 换过任何一项凭据，上一次的自检结论就作废了：留着"通过"会掩盖新密钥根本没验过这件事。
+        row.verified_at = None
+        row.verify_passed = None
+        row.verify_detail = None
     if body.enabled is not None:
         views = await channel_credentials.load_all(session, master)
         _enable_gate(channel_credentials.state(row.channel_type, _keys(views.get(row.id, []))), body.enabled)
@@ -237,7 +243,11 @@ async def verify_channel(channel_id: int, request: Request, session: Session, us
             row.id,
             {"fields": [f"credentials.{key}" for key in values], "source": "self_check"},
         )
-        await session.commit()
+    failed = next((item for item in result.checks if not item.ok), None)
+    row.verified_at = datetime.now(UTC)
+    row.verify_passed = result.passed
+    row.verify_detail = None if failed is None else f"{failed.name}：{failed.detail}"[:300]
+    await session.commit()
     return success(
         {"channel_id": row.id, "channel_type": row.channel_type, "passed": result.passed, **result.view()}
     )

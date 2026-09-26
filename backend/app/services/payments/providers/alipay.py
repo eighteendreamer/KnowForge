@@ -206,6 +206,13 @@ async def self_check(credentials: dict[str, str]) -> SelfCheck:
             verify, credentials["alipay_public_key"], str(result.signed_text), str(result.sign)
         )
         checks.append(
-            Check("响应验签", ok, "已用支付宝公钥校验响应原文" if ok else "响应缺少签名或公钥不匹配")
+            Check(
+                "响应验签",
+                ok,
+                "已用支付宝公钥校验响应原文"
+                if ok
+                else "配的支付宝公钥与网关签名不匹配：公钥模式要拷控制台的「支付宝公钥」（不是应用公钥）；"
+                "应用若走公钥证书模式，则改填支付宝公钥证书",
+            )
         )
     return SelfCheck("live", tuple(checks))

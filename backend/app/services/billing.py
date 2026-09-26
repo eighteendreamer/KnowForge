@@ -60,4 +60,11 @@ def channel_view(row: RechargeChannel, credentials: Sequence[dict[str, Any]] = (
         "updated_at": row.updated_at,
         "credentials": list(credentials),
         "configuration": channel_credentials.state(row.channel_type, [item["key"] for item in credentials]),
+        # 自检结论与"字段齐不齐"分开报：前者是厂商认不认，后者只是我们收没收回。
+        "verification": {
+            "checked": row.verified_at is not None,
+            "passed": bool(row.verify_passed),
+            "at": row.verified_at,
+            "detail": row.verify_detail,
+        },
     }

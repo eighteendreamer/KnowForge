@@ -140,6 +140,59 @@ async def test_specs_endpoint_drives_the_form_and_marks_secret_fields(context):
     assert types["alipay"]["display"] == "支付宝"
 
 
+async def test_self_check_conclusion_is_remembered_and_a_rotated_key_voids_it(
+    context, payment_keys, monkeypatch
+):
+    """ "配置完整"是我们自己的判断，"厂商认这把钥匙"必须被记住，否则列表又会开始说谎。"""
+    from app.services.payments.providers import registry
+    from app.services.payments.providers.base import Check, SelfCheck
+
+    async def passing(channel_type: str, credentials: dict[str, str]) -> SelfCheck:
+        return SelfCheck("live", (Check("网关受理签名且应用有效", True, "code=40004"),))
+
+    monkeypatch.setattr(registry, "run_self_check", passing)
+    channel_id = (await create_channel(context, payment_keys, code="alipay-verified")).json()["data"]["id"]
+    assert (await _channel(context, channel_id))["verification"]["checked"] is False
+
+    verified = await context["client"].post(
+        f"/v1/admin/recharge/channels/{channel_id}/verify", headers=context["admin_headers"]
+    )
+    assert verified.status_code == 200 and verified.json()["data"]["passed"] is True
+    row = await _channel(context, channel_id)
+    assert row["verification"] == {
+        "checked": True,
+        "passed": True,
+        "at": row["verification"]["at"],
+        "detail": None,
+    }
+    assert row["verification"]["at"]
+
+    rotated = await patch_channel(context, channel_id, {"credentials": {"app_id": "2021000000000009"}})
+    assert rotated.json()["data"]["verification"]["checked"] is False
+
+
+async def test_a_failed_self_check_keeps_the_reason_for_the_list_badge(context, payment_keys, monkeypatch):
+    from app.services.payments.providers import registry
+    from app.services.payments.providers.base import Check, SelfCheck
+
+    async def failing(channel_type: str, credentials: dict[str, str]) -> SelfCheck:
+        return SelfCheck("live", (Check("响应验签", False, "配的支付宝公钥与网关签名不匹配"),))
+
+    monkeypatch.setattr(registry, "run_self_check", failing)
+    channel_id = (await create_channel(context, payment_keys, code="alipay-badkey2")).json()["data"]["id"]
+    await context["client"].post(
+        f"/v1/admin/recharge/channels/{channel_id}/verify", headers=context["admin_headers"]
+    )
+    row = await _channel(context, channel_id)
+    assert row["verification"]["passed"] is False
+    assert "支付宝公钥" in row["verification"]["detail"]
+
+
+async def _channel(context, channel_id: int) -> dict[str, Any]:
+    listed = await context["client"].get("/v1/admin/recharge/channels", headers=context["admin_headers"])
+    return next(row for row in listed.json()["data"]["items"] if row["id"] == channel_id)
+
+
 async def test_audit_logs_field_names_only(context, payment_keys):
     created = await create_channel(context, payment_keys)
     channel_id = created.json()["data"]["id"]

@@ -1,7 +1,10 @@
+from datetime import datetime
+
 from sqlalchemy import (
     BigInteger,
     Boolean,
     CheckConstraint,
+    DateTime,
     ForeignKey,
     Index,
     Integer,
@@ -57,6 +60,10 @@ class RechargeChannel(IdentityMixin, UpdatedMixin, Base):
     # 类型决定要收哪些凭据、能不能在线下单；商户号之类的标识降级成该类型的一个普通字段。
     channel_type: Mapped[str] = mapped_column(String(20), server_default="custom")
     enabled: Mapped[bool] = mapped_column(Boolean, server_default="false")
+    # 最近一次连通性自检的结论。"字段齐了"和"厂商认这把钥匙"是两件事，列表必须能区分这两者。
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    verify_passed: Mapped[bool | None] = mapped_column(Boolean)
+    verify_detail: Mapped[str | None] = mapped_column(String(300))
 
 
 class RechargeChannelCredential(IdentityMixin, UpdatedMixin, Base):

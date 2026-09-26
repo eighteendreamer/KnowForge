@@ -55,6 +55,12 @@ const CHANNEL: RechargeChannelRow = {
   configuration: {
     payable: true, complete: false, missing: ['异步通知地址'], problem: '支付宝公钥与支付宝公钥证书至少要配一项',
   },
+  verification: { checked: false, passed: false, at: null, detail: null },
+}
+
+
+function channelWith(overrides: Partial<RechargeChannelRow>): RechargeChannelRow {
+  return { ...CHANNEL, ...overrides }
 }
 
 function mockBackend(channels: RechargeChannelRow[] = [CHANNEL]) {
@@ -186,6 +192,36 @@ it('列表状态直接说出缺哪几项，自检按钮把厂商结论逐条摊�
   expect(wrapper.text()).toContain('自检未通过')
   expect(wrapper.text()).toContain('已实际调用厂商接口')
   expect(wrapper.text()).toContain('isv.invalid-signature')
+})
+
+it('字段齐了但自检没过，徽章不能显示成"就绪"（已配置不等于能收款）', async () => {
+  mockBackend([
+    channelWith({
+      enabled: true,
+      configuration: { payable: true, complete: true, missing: [], problem: null },
+      verification: {
+        checked: true, passed: false, at: '2026-09-26T18:00:00Z', detail: '响应验签：配的支付宝公钥与网关签名不匹配',
+      },
+    }),
+  ])
+  wrapper = mounted()
+  await flushPromises()
+  expect(wrapper.text()).toContain('自检未通过')
+  expect(wrapper.text()).toContain('配的支付宝公钥与网关签名不匹配')
+  expect(wrapper.text()).not.toContain('配置完整')
+})
+
+it('自检通过后徽章带上自检时间，未自检时明确说还没验过', async () => {
+  mockBackend([
+    channelWith({
+      configuration: { payable: true, complete: true, missing: [], problem: null },
+      verification: { checked: true, passed: true, at: '2026-09-26T18:00:00Z', detail: null },
+    }),
+  ])
+  wrapper = mounted()
+  await flushPromises()
+  expect(wrapper.text()).toContain('自检通过')
+  expect(wrapper.text()).toContain('自检于')
 })
 
 it('新增渠道只收类型、代码与显示名称，凭据留到完善配置里填', async () => {

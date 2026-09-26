@@ -162,6 +162,13 @@ export interface ChannelConfiguration {
   problem: string | null
 }
 
+export interface ChannelVerification {
+  checked: boolean
+  passed: boolean
+  at: string | null
+  detail: string | null
+}
+
 export interface RechargeChannelRow {
   id: number
   code: string
@@ -171,6 +178,7 @@ export interface RechargeChannelRow {
   updated_at: string
   credentials: CredentialRowView[]
   configuration: ChannelConfiguration
+  verification: ChannelVerification
 }
 
 export interface SelfCheckResult {

@@ -263,6 +263,39 @@ def test_wechat_decrypt_resource_uses_the_apiv3_key_and_associated_data(payment_
         raise AssertionError("用错密钥的密文不应该解得开")
 
 
+async def test_alipay_self_check_tells_the_operator_the_public_key_is_the_wrong_one(
+    monkeypatch, payment_keys
+):
+    """网关受理了请求但响应验不过，几乎只会是"支付宝公钥"拷错了（拷成应用公钥或该用证书）。"""
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    other = (
+        rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        .public_key()
+        .public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo)
+        .decode()
+    )
+    install(
+        monkeypatch,
+        alipay,
+        lambda *_: StubResponse(
+            200,
+            signed_node_response(
+                "alipay_trade_query_response",
+                {"code": "40004", "sub_code": "ACQ.TRADE_NOT_EXIST"},
+                payment_keys["private_pem"],
+            ),
+        ),
+    )
+    result = await alipay.self_check({**alipay_credentials(payment_keys), "alipay_public_key": other})
+    assert not result.passed
+    mismatch = item_ok(result, "响应验签")
+    assert not mismatch.ok and "支付宝公钥" in mismatch.detail and "证书" in mismatch.detail
+    # 请求侧成功不能被响应侧失败抹掉：两条结论各自独立，运营才知道该动哪一项。
+    assert item_ok(result, "网关受理签名且应用有效").ok
+
+
 async def test_stripe_self_check_and_webhook_verification(monkeypatch, payment_keys):
     install(
         monkeypatch, stripe, lambda *_: StubResponse(200, '{"available":[{"currency":"cny","amount":0}]}')

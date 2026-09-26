@@ -273,13 +273,28 @@ const packageColumns: DataTableColumns<RechargePackageRow> = [
   },
 ]
 
-function configurationText(row: RechargeChannelRow): string {
-  if (!row.configuration.payable) return '不支持公众号在线下单'
+function missingReasons(row: RechargeChannelRow): string {
   const reasons: string[] = []
   if (row.configuration.missing.length) reasons.push(`缺 ${row.configuration.missing.join('、')}`)
   if (row.configuration.problem) reasons.push(row.configuration.problem)
   // 缺项与"两种模式只配了一半"可以同时成立，只报一条会让人修完一样再撞另一样。
-  return reasons.length ? reasons.join('；') : `${row.credentials.length} 项配置已就绪`
+  return reasons.join('；')
+}
+
+function configurationPill(row: RechargeChannelRow): { on: boolean; text: string } {
+  if (!row.configuration.payable) return { on: false, text: '不适用' }
+  if (!row.configuration.complete) return { on: false, text: row.enabled ? '配置不完整' : '待配置' }
+  if (!row.verification.checked) return { on: false, text: '未自检' }
+  return row.verification.passed ? { on: true, text: '自检通过' } : { on: false, text: '自检未通过' }
+}
+
+function configurationNote(row: RechargeChannelRow): string {
+  if (!row.configuration.payable) return '不支持公众号在线下单'
+  const reasons = missingReasons(row)
+  if (reasons) return reasons
+  if (!row.verification.checked) return `${row.credentials.length} 项配置就绪，自检未做过，厂商侧还不保证可用`
+  if (row.verification.passed) return `${row.credentials.length} 项配置 · 自检于 ${formatDate(row.verification.at)}`
+  return row.verification.detail ?? '自检未通过'
 }
 
 const channelColumns: DataTableColumns<RechargeChannelRow> = [
@@ -295,15 +310,13 @@ const channelColumns: DataTableColumns<RechargeChannelRow> = [
     title: '配置',
     key: 'configuration',
     minWidth: 240,
-    render: (row) =>
-      h('div', { class: 'cell-stacked' }, [
-        h(StatusPill, {
-          on: row.configuration.complete,
-          onText: '配置完整',
-          offText: row.enabled ? '配置不完整' : '待配置',
-        }),
-        h('span', { class: 'muted' }, configurationText(row)),
-      ]),
+    render: (row) => {
+      const pill = configurationPill(row)
+      return h('div', { class: 'cell-stacked' }, [
+        h(StatusPill, { on: pill.on, onText: pill.text, offText: pill.text }),
+        h('span', { class: 'muted' }, configurationNote(row)),
+      ])
+    },
   },
   {
     title: '状态',
