@@ -57,6 +57,12 @@ class Settings(BaseSettings):
     db_max_overflow: int = Field(default=20, ge=0, le=100)
     db_pool_timeout: int = Field(default=5, ge=1, le=120)
     metrics_token: SecretStr = SecretStr("")
+    # 支付回调与跳转的公网基址。厂商（微信 Native、支付宝 page_pay、Stripe Checkout）都要一个服务端
+    # 自己拼不出来的绝对地址，所以它必须是配置，不能让前端用 window.location.origin 兜——门户和管理端同源时
+    # 那个值可能是 127.0.0.1:5173。
+    site_url: str = ""
+    # 加密渠道凭据的主密钥。它和被加密的凭据不能同处一地：主密钥进库等于没有加密。
+    payment_master_key: SecretStr = SecretStr("")
     configuration_id: UUID | None = None
     index_fingerprint: str | None = None
 
@@ -88,6 +94,21 @@ class Settings(BaseSettings):
             raise ValueError("qdrant_collection must be 1-100 letters, digits, underscore or hyphen")
         return value
 
+    @field_validator("site_url")
+    @classmethod
+    def validate_site_url(cls, value: str) -> str:
+        if value and not value.startswith(("http://", "https://")):
+            raise ValueError("site_url must be an absolute http(s) URL")
+        return value.rstrip("/")
+
+    @field_validator("payment_master_key")
+    @classmethod
+    def validate_payment_master_key(cls, value: SecretStr) -> SecretStr:
+        raw = value.get_secret_value()
+        if raw and not re.fullmatch(r"[0-9a-fA-F]{64}", raw):
+            raise ValueError("payment_master_key must be 32 random bytes as 64 hex characters")
+        return value
+
     @model_validator(mode="after")
     def validate_chunking(self) -> "Settings":
         if self.chunk_overlap >= self.chunk_size:
@@ -99,3 +120,8 @@ class Settings(BaseSettings):
     @property
     def models_configured(self) -> bool:
         return bool(self.model_api_base_url and self.model_api_key.get_secret_value())
+
+    @property
+    def payment_master_key_bytes(self) -> bytes | None:
+        raw = self.payment_master_key.get_secret_value()
+        return bytes.fromhex(raw) if raw else None
