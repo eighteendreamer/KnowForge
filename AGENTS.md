@@ -47,6 +47,9 @@
 - 给用户的过滤项必须来自服务端元数据接口：标签用 `GET /v1/knowledge/tags?category=`（只返回已过审标签，带 count），分类用 `GET /v1/knowledge/categories`。自由输入标签或分类路径不是"更灵活"，而是把拼错变成静默空结果——`filters.tags` 与 `filters.category` 命中不到都返回 0 而不是报错。门户检索试用页因此用 NSelect/NTreeSelect 绑这两个接口，回归测试见 `frontend-portal/src/tests/playground.spec.ts`。
 - 门说"人工确认"就只能人确认：模型（包括复核用的代理）给同类产出打分不构成证据。`tag-accuracy-overrides.csv` 的 `verdict_by` 留空才算人手判定，`agent:` 前缀只算复核，`标签准确率` 这条门同时要求 `accuracy>=0.85`、样本 `>=100` 与**人手判定 `>=100`**（`acceptance_quality.MIN_HUMAN_VERDICTS`）。同理，任何"人工"字段都不要为了过门用脚本批量填值——那会把门的语义清空。
 - 往 `RUNTIME_FIELDS` 加字段等于换了一版配置结构：`build_settings` 和 `restore_snapshot` 要求字段集完全一致，必须同步写数据迁移回填 `runtime_configurations.values`、`index_rebuilds.target_values`、`processing_tasks.config_snapshot` 三处，否则应用启动即 5002 失败。
+- 渠道支付凭据只能经 `backend/app/services/payments/crypto.py` 进出库（HKDF 派生 + AES-256-GCM，AAD 绑 `channel_id|key_name|key_version`），明文永不进日志、审计、响应体；加密主密钥 `KNOFORGE_PAYMENT_MASTER_KEY` 只能放 `.env`，与被加密的凭据同库同源等于没加密。主密钥缺失时所有凭据读写必须 fail-closed 报 503/5003，不许降级成明文存储。
+- `backend/app/services/payments/specs.py` 的 `CREDENTIAL_SPECS` 是渠道凭据字段的唯一事实源：加字段要同改 spec、provider 客户端与 `test_payment_specs.py`，管理端表单从 `GET /v1/admin/recharge/credential-specs` 渲染，前端不得复制一份字段清单。凭据 PATCH 是三态契约（键缺省=保留、有值=轮换且 `key_version+1`、null=清除），任何"总是把全部字段发出去"的写法都会把未改动密钥静默清空——`test_payment_credentials.py` 有守卫。
+- 支付签名/验签与证书解析属 CPU 重活，请求与回调处理函数里必须 `asyncio.to_thread`（心跳回归见 `test_payment_selfcheck.py`）；厂商回调 handler 必须消费原始字节或原始表单字段，禁止经 Pydantic 反序列化后重编码再验签。live 用例唯一入口是 `KNOFORGE_LIVE_PAYMENT_TESTS=1` 加 `-m live`，默认全 skip，不许把真商户凭据写进仓库或夹具。
 
 ## 构建、测试与运行
 

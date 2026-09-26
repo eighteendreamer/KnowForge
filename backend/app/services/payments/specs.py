@@ -352,7 +352,7 @@ CREDENTIAL_SPECS: Final[dict[str, list[CredentialField]]] = {
     "custom": [],
 }
 
-# 在线下单要求这三项齐活：公钥模式与证书模式二选一，回调地址可空但要有查单能力。
+# 公钥模式与证书模式二选一的组合约束：只配一半比不配更危险，因为要打到厂商侧才暴露。
 ALIPAY_KEY_PAIR_MESSAGE: Final = "支付宝公钥与支付宝公钥证书至少要配一项"
 WECHAT_KEY_PAIR_MESSAGE: Final = "微信支付公钥（含公钥ID）与平台证书至少要配一项"
 
