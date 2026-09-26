@@ -1,0 +1,699 @@
+:root {
+  font-family: v-sans, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  color: #333639;
+  background: #fff;
+  font-synthesis: none;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+a {
+  color: #18a058;
+  text-decoration: none;
+}
+a:hover {
+  color: #36ad6a;
+}
+h1 {
+  font-size: 40px;
+  font-weight: 600;
+  margin: 0;
+  line-height: 1.2;
+  letter-spacing: -0.6px;
+}
+h2 {
+  font-size: 24px;
+  font-weight: 600;
+  margin: 0 0 10px;
+  letter-spacing: -0.2px;
+}
+h3 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 8px;
+}
+p {
+  line-height: 1.75;
+  margin: 0;
+}
+.muted {
+  color: #767c82;
+}
+.row,
+.heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.nowrap {
+  white-space: nowrap;
+}
+code {
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  font-size: 13px;
+}
+
+/* 门户顶栏：落地页与登录注册共用 */
+.gate-header {
+  height: 68px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 0 40px;
+  border-bottom: 1px solid #efeff5;
+  position: sticky;
+  top: 0;
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(8px);
+  z-index: 2;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #333639;
+  white-space: nowrap;
+}
+.brand strong {
+  font-size: 20px;
+  letter-spacing: -0.5px;
+  font-weight: 600;
+}
+.gate-nav {
+  display: flex;
+  align-items: center;
+  gap: 26px;
+  font-size: 14px;
+}
+.gate-nav a {
+  color: #5c6662;
+}
+.gate-nav a:hover {
+  color: #18a058;
+}
+
+/* 落地页分节：内容直铺，分组只靠留白与 1px 分隔线 */
+.band {
+  padding: 84px 40px;
+  border-bottom: 1px solid #efeff5;
+  max-width: 1240px;
+  margin: 0 auto;
+}
+.band-tight {
+  padding: 60px 40px;
+}
+.hero {
+  padding: 96px 40px 76px;
+  border-bottom: 1px solid #efeff5;
+  max-width: 1240px;
+  margin: 0 auto;
+}
+.hero-inner {
+  max-width: 760px;
+}
+.hero .eyebrow {
+  font-size: 13px;
+  letter-spacing: 1.4px;
+  color: #18a058;
+  text-transform: uppercase;
+  margin-bottom: 18px;
+}
+.hero p {
+  font-size: 17px;
+  color: #5c6662;
+  margin-top: 20px;
+}
+.hero .row {
+  margin-top: 34px;
+  flex-wrap: wrap;
+}
+.band-head {
+  max-width: 720px;
+  margin-bottom: 40px;
+}
+.band-head p {
+  color: #5c6662;
+  margin-top: 6px;
+}
+.split {
+  display: grid;
+  grid-template-columns: minmax(240px, 0.8fr) minmax(380px, 1.4fr);
+  gap: 44px;
+  align-items: start;
+}
+.list-plain {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.list-plain > li {
+  padding: 20px 0;
+  border-top: 1px solid #efeff5;
+}
+.list-plain > li:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+.list-plain h3 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.list-plain p {
+  color: #5c6662;
+  font-size: 14px;
+  margin-top: 6px;
+}
+.spec-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1px;
+  background: #efeff5;
+  border-top: 1px solid #efeff5;
+  border-bottom: 1px solid #efeff5;
+}
+.spec-cell {
+  background: #fff;
+  padding: 26px 24px;
+}
+.spec-cell dt {
+  font-size: 13px;
+  color: #767c82;
+  margin-bottom: 8px;
+}
+.spec-cell dd {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.7;
+}
+.table-plain {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+/* 表格的 min-content 宽度会撑破窄屏页面，所以一律放进横向滚动容器里。 */
+.table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+}
+.table-plain th,
+.table-plain td {
+  text-align: left;
+  padding: 12px 14px;
+  border-bottom: 1px solid #efeff5;
+  vertical-align: top;
+}
+.table-plain th {
+  color: #767c82;
+  font-weight: 500;
+  font-size: 13px;
+}
+.table-plain code {
+  color: #137a43;
+}
+.gate-footer {
+  padding: 34px 40px 56px;
+  max-width: 1240px;
+  margin: 0 auto;
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  font-size: 13px;
+  color: #767c82;
+  flex-wrap: wrap;
+}
+
+/* 落地页隐藏浏览器滚动条（滚轮、触摸、键盘照旧）：Windows 上常驻的实心滚动条会吃掉右侧留白。 */
+html.hide-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+html.hide-scrollbar::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+/* 登录与注册 */
+.gate-page {
+  min-height: calc(100dvh - 68px);
+  display: grid;
+  place-items: center;
+  padding: 48px 32px;
+}
+.gate-form {
+  width: 380px;
+  max-width: 100%;
+}
+.gate-form h1 {
+  font-size: 26px;
+  margin-bottom: 8px;
+}
+.gate-form > p {
+  margin-bottom: 28px;
+}
+.gate-form .n-input {
+  font-size: 14px;
+}
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 20px;
+}
+.field-hint {
+  font-size: 12px;
+  color: #767c82;
+  margin-top: 6px;
+  line-height: 1.6;
+}
+
+/* 控制台骨架：顶栏与欢迎页共用 .gate-header，外壳只负责剩余高度的分配 */
+.console-frame {
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+.console-shell {
+  flex: 1;
+  min-height: 0;
+}
+.console-content {
+  height: 100%;
+  padding: 24px 32px 44px;
+  overflow-y: auto;
+}
+.page-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 26px;
+}
+.page-heading h1 {
+  font-size: 26px;
+}
+.page-heading p {
+  margin: 8px 0 0;
+  color: #767c82;
+  font-size: 14px;
+}
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+.toolbar .n-input {
+  width: 260px;
+}
+.toolbar .n-select {
+  width: 180px;
+}
+.toolbar .toolbar-key {
+  width: 240px;
+}
+.pagination {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 20px;
+}
+.section {
+  padding: 26px 0;
+  border-bottom: 1px solid #efeff5;
+}
+.section:first-of-type {
+  padding-top: 0;
+}
+.split-view {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.85fr) minmax(380px, 1.7fr);
+  gap: 32px;
+}
+.metric-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  border-bottom: 1px solid #efeff5;
+  margin-bottom: 26px;
+  padding-bottom: 22px;
+}
+.metric {
+  padding: 0 24px;
+  border-left: 1px solid #efeff5;
+}
+.metric:first-child {
+  padding-left: 0;
+  border-left: 0;
+}
+.metric strong {
+  display: block;
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 1.7;
+  letter-spacing: -0.4px;
+}
+.metric span {
+  font-size: 13px;
+  color: #767c82;
+}
+.chart-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 1px;
+  background: #efeff5;
+  border: 1px solid #efeff5;
+}
+.chart-cell {
+  background: #fff;
+  padding: 18px 20px 8px;
+}
+.chart-cell h3 {
+  font-size: 14px;
+  margin-bottom: 2px;
+}
+.chart-cell .muted {
+  font-size: 12px;
+}
+.modal-form {
+  width: min(520px, calc(100vw - 40px));
+}
+.secret-box {
+  font-size: 13px;
+  word-break: break-all;
+}
+.code-block {
+  background: #f7f8f7;
+  border: 1px solid #efeff5;
+  padding: 14px 16px;
+  overflow: auto;
+  font-size: 13px;
+  line-height: 1.7;
+  margin: 0;
+}
+.result-item {
+  padding: 22px 0;
+  border-bottom: 1px solid #efeff5;
+}
+.result-item:first-child {
+  padding-top: 0;
+}
+.result-item h2 {
+  font-size: 16px;
+  margin-bottom: 8px;
+}
+.result-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  color: #767c82;
+  font-size: 12px;
+  margin-top: 10px;
+}
+
+/* 表格单元格：操作区不换行，堆叠单元格给窄屏列表用 */
+.row-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  white-space: nowrap;
+}
+.cell-stacked {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 3px 0;
+  min-width: 0;
+}
+.cell-sub {
+  font-size: 12px;
+  color: #767c82;
+  overflow-wrap: anywhere;
+}
+
+/* 接口文档 */
+.docs-layout {
+  display: grid;
+  grid-template-columns: 236px minmax(0, 1fr);
+  gap: 36px;
+  align-items: start;
+}
+.docs-nav {
+  position: sticky;
+  top: 0;
+  max-height: calc(100dvh - 130px);
+  overflow-y: auto;
+  padding-bottom: 20px;
+}
+.docs-nav-label {
+  font-size: 12px;
+  letter-spacing: 1px;
+  color: #767c82;
+  padding: 14px 0 6px;
+}
+.docs-nav a {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: 4px;
+  color: #333639;
+  font-size: 13px;
+}
+.docs-nav a:hover {
+  background: #f4f7f5;
+}
+.docs-nav a.active {
+  background: #eaf5ee;
+  color: #137a43;
+  font-weight: 500;
+}
+.docs-nav a .method {
+  font-size: 11px;
+  color: #767c82;
+  letter-spacing: 0.4px;
+}
+.docs-anchor {
+  scroll-margin-top: 20px;
+}
+.docs-block {
+  padding: 26px 0;
+  border-bottom: 1px solid #efeff5;
+}
+.docs-block:first-of-type {
+  padding-top: 0;
+}
+.docs-block h2 {
+  font-size: 19px;
+}
+.docs-block h3 {
+  font-size: 14px;
+  color: #5c6662;
+  margin: 22px 0 10px;
+}
+.doc-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+.doc-table th,
+.doc-table td {
+  text-align: left;
+  padding: 9px 12px;
+  border-bottom: 1px solid #efeff5;
+  vertical-align: top;
+}
+.doc-table th {
+  color: #767c82;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.doc-table td.name {
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  color: #137a43;
+  white-space: nowrap;
+}
+.doc-table td.type {
+  color: #767c82;
+  white-space: nowrap;
+}
+.doc-example-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 14px 0 8px;
+}
+.badge-required {
+  color: #d03050;
+  font-size: 12px;
+}
+@media (max-width: 1100px) {
+  .docs-layout {
+    grid-template-columns: 1fr;
+  }
+  .docs-nav {
+    position: static;
+    max-height: none;
+  }
+}
+@media (max-width: 1000px) {
+  .console-content {
+    padding: 24px 20px;
+  }
+  .band,
+  .hero,
+  .gate-footer {
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+  .gate-header {
+    padding: 0 20px;
+  }
+  .split,
+  .split-view {
+    grid-template-columns: 1fr;
+  }
+  .metric-strip {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 18px 0;
+  }
+  .metric {
+    padding: 0;
+    border-left: 0;
+  }
+}
+@media (max-width: 700px) {
+  h1 {
+    font-size: 30px;
+  }
+  .page-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .gate-header {
+    height: auto;
+    min-height: 60px;
+    padding: 10px 14px;
+    flex-wrap: nowrap;
+    gap: 10px;
+  }
+  .gate-nav {
+    gap: 14px;
+    flex-wrap: nowrap;
+  }
+  .metric-strip {
+    grid-template-columns: 1fr;
+  }
+  .toolbar .n-input,
+  .toolbar .n-select {
+    width: 100%;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   H5 适配层：断点与 src/composables/media.ts 的 NARROW_QUERY 必须一致（860px）。
+   窄屏不靠"缩小桌面"，而是换排法：单栏、满宽控件、表格横向滑动、指标条改竖排。
+--------------------------------------------------------------------------- */
+@media (max-width: 860px) {
+  .console-content {
+    padding: 18px 14px 40px;
+  }
+  .page-heading {
+    margin-bottom: 18px;
+    gap: 14px;
+  }
+  .page-heading h1 {
+    font-size: 22px;
+  }
+  .page-heading p {
+    font-size: 13px;
+  }
+  /* 页头右侧的操作按钮在窄屏跟着标题排到第二行，满宽好点。 */
+  .heading-actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+  .heading-actions .n-button {
+    flex: 1 1 auto;
+  }
+  .split-view {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 26px;
+  }
+  .metric-strip {
+    display: block;
+    padding-bottom: 8px;
+  }
+  .metric {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 12px 0;
+    border-left: 0;
+    border-bottom: 1px solid #efeff5;
+  }
+  .metric strong {
+    font-size: 22px;
+    line-height: 1.5;
+  }
+  .chart-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .toolbar {
+    gap: 10px;
+  }
+  .toolbar .n-input,
+  .toolbar .n-select,
+  .toolbar .n-date-picker,
+  .toolbar .n-input-number {
+    width: 100%;
+    flex: 1 1 100%;
+  }
+  /* 宽表在窄屏横向滑动，避免把列压碎。 */
+  .table-plain th,
+  .table-plain td {
+    padding: 10px 12px;
+    font-size: 13px;
+  }
+  .docs-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 18px;
+  }
+  .docs-nav {
+    position: static;
+    max-height: 216px;
+    padding: 0 0 8px;
+    border-bottom: 1px solid #efeff5;
+  }
+  .gate-form {
+    width: 100%;
+  }
+  .form-actions {
+    flex-wrap: wrap;
+  }
+  .form-actions .n-button {
+    flex: 1 1 auto;
+  }
+  .result-summary {
+    gap: 10px 16px;
+    font-size: 12.5px;
+  }
+  .result-meta {
+    gap: 8px 14px;
+  }
+  .option-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .pagination {
+    justify-content: center;
+  }
+}
+

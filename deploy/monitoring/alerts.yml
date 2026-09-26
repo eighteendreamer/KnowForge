@@ -1,0 +1,64 @@
+groups:
+  - name: knowforge
+    rules:
+      - alert: KnowForgeUnavailable
+        expr: up{job="knowforge"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: KnowForge metrics endpoint is unavailable
+      - alert: KnowForgeApiErrors
+        expr: sum(rate(knowforge_http_requests_total{status=~"5.."}[5m])) / clamp_min(sum(rate(knowforge_http_requests_total[5m])), 0.001) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: API 5xx error ratio exceeds 5 percent
+      - alert: KnowForgeModelRateLimited
+        expr: sum(increase(knowforge_model_requests_total{outcome="429"}[5m])) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: Model provider is returning rate limits
+      - alert: KnowForgeModelFailures
+        expr: sum(increase(knowforge_model_requests_total{outcome!="ok"}[5m])) > 2
+        labels:
+          severity: warning
+        annotations:
+          summary: Repeated model errors or timeouts
+      - alert: KnowForgeModelQuotaWait
+        expr: sum(increase(knowforge_model_quota_wait_seconds_count{outcome="failed"}[5m])) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: Shared model concurrency or request quota cannot be acquired
+      - alert: KnowForgeTaskBacklog
+        expr: knowforge_oldest_pending_task_seconds > 300
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Pending document task has waited over five minutes
+      - alert: KnowForgeTaskFailures
+        expr: knowforge_tasks{status="failed"} > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: Failed document tasks require inspection
+      - alert: KnowForgeNoQueueConsumer
+        expr: knowforge_queue_consumer_online == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: No Celery worker consumes the queue; submissions are being refused
+      - alert: KnowForgeRebuildNotConsumed
+        expr: knowforge_oldest_pending_rebuild_seconds > 120
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: An index rebuild sits pending with no recovery path; check the worker then retry

@@ -1,0 +1,24 @@
+.venv/
+.env
+.env.*
+!.env.example
+.idea/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+coverage.xml
+htmlcov/
+node_modules/
+dist/
+*.log
+data/*
+!data/storage/
+data/storage/*
+!data/storage/.gitkeep
+docs-spider/pdfs/
+
+# 采集脚本里带浏览器会话 cookie（passport_web_did / session），属于凭据，不进仓库
+docs-spider/download_pdfs.py

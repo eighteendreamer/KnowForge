@@ -1,0 +1,10 @@
+{
+  "name": "@knowforge/sdk",
+  "version": "0.1.0",
+  "description": "Server-side client for the KnowForge public knowledge API",
+  "type": "module",
+  "exports": { ".": { "types": "./index.d.ts", "import": "./index.js" } },
+  "files": ["index.js", "index.d.ts"],
+  "engines": { "node": ">=22" },
+  "scripts": { "test": "node --test *.test.js" }
+}

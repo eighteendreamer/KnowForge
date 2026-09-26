@@ -1,0 +1,60 @@
+# KnowForge 生产入口模板（方案 6.2 的"Nginx 静态托管 + 反向代理 API"）。
+#
+# 本地开发用不到这个文件：scripts/dev.ps1 直接起 Vite（管理端 5173、门户 5174），
+# 两个工程的 vite.config.ts 里已经配好 /v1 与 /health 的同源代理。
+#
+# 上线时只需要改两类值：server_name 与 root。root 指向各自 npm run build 的产物：
+#   frontend/          → dist/   管理后台
+#   frontend-portal/   → dist/   用户门户
+# 反代片段见同目录 knowforge-api-proxy.conf（/v1 与 /health，不暴露 /metrics）。
+#
+# TLS 与证书按站点实际托管方式配置（宝塔面板里就是"网站 → SSL → 强制 HTTPS"），
+# 本模板只给 80 端口的骨架，不在仓库里放证书路径。
+
+upstream knowforge_api {
+    server 127.0.0.1:8000;
+    keepalive 32;
+}
+
+server {
+    listen 80;
+    server_name knowforge.example;
+
+    root /srv/knowforge/frontend-portal/dist;
+    index index.html;
+
+    include /etc/nginx/snippets/knowforge-api-proxy.conf;
+
+    # 构建产物带内容哈希，可以长缓存；index.html 必须每次回源，否则改版后拿不到新哈希。
+    location /assets/ {
+        expires 30d;
+        add_header Cache-Control "public, immutable";
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}
+
+server {
+    listen 80;
+    server_name admin.knowforge.example;
+
+    # 管理后台不面向公网：至少加 IP 白名单，或只在内网/VPN 监听。
+    # allow 10.0.0.0/8;
+    # deny all;
+
+    root /srv/knowforge/frontend/dist;
+    index index.html;
+
+    include /etc/nginx/snippets/knowforge-api-proxy.conf;
+
+    location /assets/ {
+        expires 30d;
+        add_header Cache-Control "public, immutable";
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}

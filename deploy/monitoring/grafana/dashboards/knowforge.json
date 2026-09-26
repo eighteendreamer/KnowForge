@@ -1,0 +1,105 @@
+{
+  "uid": "knowforge-overview",
+  "title": "KnowForge · 服务与模型",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "15s",
+  "time": {"from": "now-30m", "to": "now"},
+  "tags": ["knowforge"],
+  "panels": [
+    {
+      "id": 1, "type": "stat", "title": "服务可用性",
+      "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "knowforge-prometheus"},
+      "targets": [{"refId": "A", "expr": "up{job=\"knowforge\"}", "instant": true}],
+      "fieldConfig": {"defaults": {"min": 0, "max": 1, "mappings": [{"type": "value", "options": {"0": {"text": "不可用", "color": "red"}, "1": {"text": "在线", "color": "green"}}}]}, "overrides": []}
+    },
+    {
+      "id": 2, "type": "stat", "title": "待处理任务",
+      "gridPos": {"x": 6, "y": 0, "w": 6, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "knowforge-prometheus"},
+      "targets": [{"refId": "A", "expr": "knowforge_tasks{status=\"pending\"}", "instant": true}]
+    },
+    {
+      "id": 3, "type": "stat", "title": "失败任务",
+      "gridPos": {"x": 12, "y": 0, "w": 6, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "knowforge-prometheus"},
+      "targets": [{"refId": "A", "expr": "knowforge_tasks{status=\"failed\"}", "instant": true}],
+      "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}, "overrides": []}
+    },
+    {
+      "id": 4, "type": "stat", "title": "最早待处理任务等待",
+      "gridPos": {"x": 18, "y": 0, "w": 6, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "knowforge-prometheus"},
+      "targets": [{"refId": "A", "expr": "knowforge_oldest_pending_task_seconds", "instant": true}],
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []}
+    },
+    {
+      "id": 5, "type": "timeseries", "title": "API 请求 / 秒",
+      "gridPos": {"x": 0, "y": 4, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "knowforge-prometheus"},
+      "targets": [{"refId": "A", "expr": "sum by (route, status) (rate(knowforge_http_requests_total[5m]))", "legendFormat": "{{route}} · {{status}}"}],
+      "fieldConfig": {"defaults": {"unit": "reqps", "min": 0}, "overrides": []}
+    },
+    {
+      "id": 6, "type": "timeseries", "title": "API 延迟 P50 / P95 / P99（响应头）",
+      "gridPos": {"x": 12, "y": 4, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "knowforge-prometheus"},
+      "targets": [
+        {"refId": "A", "expr": "histogram_quantile(0.5, sum by (le) (rate(knowforge_http_request_duration_seconds_bucket[5m])))", "legendFormat": "P50"},
+        {"refId": "B", "expr": "histogram_quantile(0.95, sum by (le) (rate(knowforge_http_request_duration_seconds_bucket[5m])))", "legendFormat": "P95"},
+        {"refId": "C", "expr": "histogram_quantile(0.99, sum by (le) (rate(knowforge_http_request_duration_seconds_bucket[5m])))", "legendFormat": "P99"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "s", "min": 0}, "overrides": []}
+    },
+    {
+      "id": 7, "type": "timeseries", "title": "模型请求耗时 P95（不含配额等待）",
+      "gridPos": {"x": 0, "y": 12, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "knowforge-prometheus"},
+      "targets": [{"refId": "A", "expr": "histogram_quantile(0.95, sum by (le, operation, model) (rate(knowforge_model_request_duration_seconds_bucket[5m])))", "legendFormat": "{{operation}} · {{model}}"}],
+      "fieldConfig": {"defaults": {"unit": "s", "min": 0}, "overrides": []}
+    },
+    {
+      "id": 8, "type": "timeseries", "title": "模型错误 / 限流 / 重试（5 分钟）",
+      "gridPos": {"x": 12, "y": 12, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "knowforge-prometheus"},
+      "targets": [
+        {"refId": "A", "expr": "sum by (operation, outcome) (increase(knowforge_model_requests_total{outcome!=\"ok\"}[5m]))", "legendFormat": "{{operation}} · {{outcome}}"},
+        {"refId": "B", "expr": "sum by (operation) (increase(knowforge_model_retries_total[5m]))", "legendFormat": "{{operation}} · retry"}
+      ],
+      "fieldConfig": {"defaults": {"min": 0}, "overrides": []}
+    },
+    {
+      "id": 9, "type": "timeseries", "title": "检索缓存命中 / 未命中（5 分钟）",
+      "gridPos": {"x": 0, "y": 20, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "knowforge-prometheus"},
+      "targets": [{"refId": "A", "expr": "sum by (mode, outcome) (increase(knowforge_search_cache_total[5m]))", "legendFormat": "{{mode}} · {{outcome}}"}],
+      "fieldConfig": {"defaults": {"min": 0}, "overrides": []}
+    },
+    {
+      "id": 10, "type": "timeseries", "title": "模型共享并发与在线等待",
+      "gridPos": {"x": 12, "y": 20, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "knowforge-prometheus"},
+      "targets": [
+        {"refId": "A", "expr": "knowforge_model_active_leases", "legendFormat": "执行中"},
+        {"refId": "B", "expr": "knowforge_model_online_waiters", "legendFormat": "在线等待"},
+        {"refId": "C", "expr": "knowforge_model_concurrency_limit", "legendFormat": "并发上限"}
+      ],
+      "fieldConfig": {"defaults": {"min": 0}, "overrides": []}
+    },
+    {
+      "id": 11, "type": "timeseries", "title": "服务商已报告 Token 用量（5 分钟，不推算缺失用量）",
+      "gridPos": {"x": 0, "y": 28, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "knowforge-prometheus"},
+      "targets": [{"refId": "A", "expr": "sum by (operation, model) (increase(knowforge_model_tokens_total{kind=\"total\"}[5m]))", "legendFormat": "{{operation}} · {{model}}"}],
+      "fieldConfig": {"defaults": {"min": 0}, "overrides": []}
+    },
+    {
+      "id": 12, "type": "timeseries", "title": "Worker 已完成任务尝试（5 分钟）",
+      "gridPos": {"x": 12, "y": 28, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "knowforge-prometheus"},
+      "targets": [{"refId": "A", "expr": "sum by (type, outcome) (increase(knowforge_task_runs_total[5m]))", "legendFormat": "{{type}} · {{outcome}}"}],
+      "fieldConfig": {"defaults": {"min": 0}, "overrides": []}
+    }
+  ]
+}

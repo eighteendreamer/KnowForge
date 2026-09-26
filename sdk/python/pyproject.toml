@@ -1,0 +1,13 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "knowforge-sdk"
+version = "0.1.0"
+description = "Async client for the KnowForge public knowledge API"
+requires-python = ">=3.11"
+dependencies = ["httpx>=0.28.1,<1"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["knowforge_sdk"]
