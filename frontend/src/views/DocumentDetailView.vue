@@ -86,8 +86,8 @@ onMounted(() => run(async () => {
         <NDescriptionsItem label="上传时间">{{ formatDate(document.upload_time) }}</NDescriptionsItem>
       </NDescriptions>
       <div class="detail-grid">
-        <section><DocumentPreview :doc-id="docId" :filename="document.source" :page="previewPage" /></section>
-        <section>
+        <section class="detail-left"><DocumentPreview :doc-id="docId" :filename="document.source" :page="previewPage" /></section>
+        <section class="detail-right">
           <NTabs type="line" animated>
             <NTabPane name="chunks" tab="知识片段">
               <NEmpty v-if="!chunks.length" description="文档就绪后显示知识片段" />

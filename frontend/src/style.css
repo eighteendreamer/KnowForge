@@ -22,6 +22,14 @@ p { line-height: 1.7; }
 .section { padding: 24px 0; border-bottom: 1px solid #efeff5; }
 .split-view { display: grid; grid-template-columns: minmax(280px, 0.85fr) minmax(380px, 1.7fr); gap: 32px; }
 .detail-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(320px, 1fr); gap: 28px; }
+/* 文档详情两栏等高：原来左栏 iframe 定高 660、右栏随片段数无限长，两栏完全对不齐。
+   现在两栏都按 --pane-height 取高，各自内部滚动，400px 是顶栏+页头+描述条占掉的固定高度。 */
+.detail-grid { --pane-height: max(420px, calc(100dvh - 400px)); align-items: start; }
+.detail-left { height: var(--pane-height); display: flex; flex-direction: column; }
+.detail-left :is(.n-spin-container, .n-spin-content) { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.detail-left .preview { flex: 1; min-height: 320px; height: auto; }
+.detail-right { height: var(--pane-height); overflow-y: auto; padding-right: 6px; }
+.detail-right .n-tabs-nav { position: sticky; top: 0; z-index: 2; background: #fff; }
 .metric-strip { display: grid; grid-template-columns: repeat(4, 1fr); padding: 8px 0 28px; border-bottom: 1px solid #efeff5; margin-bottom: 28px; }
 .metric { padding: 0 28px; border-right: 1px solid #efeff5; }
 .metric:first-child { padding-left: 0; }
@@ -46,6 +54,11 @@ p { line-height: 1.7; }
   .page-content { padding: 24px 20px; }
   .split-view, .detail-grid { grid-template-columns: 1fr; }
   .shell-header { padding: 0 16px; }
+  /* 单栏时不再各自滚动：两栏叠着各自一块固定高度反而更难用，交回页面滚动。 */
+  .detail-left, .detail-right { height: auto; }
+  .detail-left .preview { flex: none; height: 620px; }
+  .detail-right { overflow: visible; padding-right: 0; }
+  .detail-right .n-tabs-nav { position: static; }
 }
 @media (max-width: 700px) {
   .page-heading { align-items: flex-start; flex-direction: column; }
