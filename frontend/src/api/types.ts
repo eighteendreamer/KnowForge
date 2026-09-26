@@ -124,14 +124,61 @@ export interface RechargePackageRow {
   sort_order: number
 }
 
+export interface CredentialFieldSpec {
+  key: string
+  label: string
+  help: string
+  secret: boolean
+  required: boolean
+  editable: boolean
+  default: string | null
+  options: string[]
+  max_length: number
+  multiline: boolean
+}
+
+export interface ChannelTypeSpec {
+  channel_type: string
+  display: string
+  payable: boolean
+  fields: CredentialFieldSpec[]
+}
+
+export interface CredentialRowView {
+  key: string
+  label: string
+  secret: boolean
+  configured: boolean
+  fingerprint: string
+  key_version: number
+  set_at: string
+  value: string | null
+}
+
+export interface ChannelConfiguration {
+  payable: boolean
+  complete: boolean
+  missing: string[]
+  problem: string | null
+}
+
 export interface RechargeChannelRow {
   id: number
   code: string
   display_name: string
-  merchant_id: string | null
-  secret_configured: boolean
+  channel_type: string
   enabled: boolean
   updated_at: string
+  credentials: CredentialRowView[]
+  configuration: ChannelConfiguration
+}
+
+export interface SelfCheckResult {
+  channel_id: number
+  channel_type: string
+  mode: string
+  passed: boolean
+  checks: { name: string; ok: boolean; detail: string }[]
 }
 
 export interface KeyOwnerRow {

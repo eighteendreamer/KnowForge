@@ -152,7 +152,7 @@ class GatewayResponse:
 
 async def query_trade(credentials: dict[str, str], out_trade_no: str) -> GatewayResponse:
     """查单。自检用它打一个不存在的单号，对账用它确认真实订单。"""
-    require(credentials, "app_id", "app_private_key", "gateway_url")
+    require(credentials, "alipay", "app_id", "app_private_key", "gateway_url")
     params = common_params(
         app_id=credentials["app_id"],
         method="alipay.trade.query",
@@ -182,7 +182,7 @@ def _top_level_sign(raw: str) -> str | None:
 
 
 async def self_check(credentials: dict[str, str]) -> SelfCheck:
-    require(credentials, "app_id", "app_private_key", "gateway_url")
+    require(credentials, "alipay", "app_id", "app_private_key", "gateway_url")
     try:
         await asyncio.to_thread(load_private_key, credentials["app_private_key"])
     except ValueError as reason:

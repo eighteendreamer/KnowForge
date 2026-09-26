@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { h, onMounted, reactive, ref } from 'vue'
+import { computed, h, onMounted, reactive, ref } from 'vue'
 import {
   NAlert,
   NButton,
@@ -9,32 +9,56 @@ import {
   NInput,
   NInputNumber,
   NModal,
-  NSwitch,
+  NSelect,
   NSpace,
+  NSwitch,
   useDialog,
   type DataTableColumns,
 } from 'naive-ui'
 import { api } from '../api/client'
 import { formatCent, formatDate, toCent, useAction } from '../api/feedback'
-import type { Page, RechargeChannelRow, RechargePackageRow } from '../api/types'
+import type {
+  ChannelTypeSpec,
+  CredentialFieldSpec,
+  Page,
+  RechargeChannelRow,
+  RechargePackageRow,
+  SelfCheckResult,
+} from '../api/types'
 import PageHeader from '../components/PageHeader.vue'
 
 const { busy, run } = useAction()
 const dialog = useDialog()
 const packages = ref<RechargePackageRow[]>([])
 const channels = ref<RechargeChannelRow[]>([])
+// 表单字段全部来自服务端元数据，前端不复制一份厂商字段清单。
+const specs = ref<ChannelTypeSpec[]>([])
 
 const packageOpen = ref(false)
 const packageEditing = ref<RechargePackageRow | null>(null)
 const packageForm = reactive({ label: '', yuan: 100, bonus_yuan: 0, enabled: true, sort_order: 10 })
 
-const channelOpen = ref(false)
-const channelEditing = ref<RechargeChannelRow | null>(null)
-const channelForm = reactive({ code: '', display_name: '', merchant_id: '', secret: '', enabled: false })
+const createOpen = ref(false)
+const createForm = reactive({ channel_type: 'alipay', code: '', display_name: '' })
+
+const configOpen = ref(false)
+const configTarget = ref<RechargeChannelRow | null>(null)
+const configForm = reactive({ display_name: '' })
+const drafts = reactive<Record<string, { value: string; dirty: boolean }>>({})
+
+const verifyOpen = ref(false)
+const verifyResult = ref<SelfCheckResult | null>(null)
+const verifyTarget = ref('')
 
 async function fetchAll() {
-  packages.value = (await api<Page<RechargePackageRow>>('/recharge/packages')).items
-  channels.value = (await api<Page<RechargeChannelRow>>('/recharge/channels')).items
+  const [packageData, channelData, specData] = await Promise.all([
+    api<Page<RechargePackageRow>>('/recharge/packages'),
+    api<Page<RechargeChannelRow>>('/recharge/channels'),
+    api<{ types: ChannelTypeSpec[] }>('/recharge/credential-specs'),
+  ])
+  packages.value = packageData.items
+  channels.value = channelData.items
+  specs.value = specData.types
 }
 function load() {
   return run(fetchAll)
@@ -80,37 +104,141 @@ function deletePackage(row: RechargePackageRow) {
   })
 }
 
-function editChannel(row?: RechargeChannelRow) {
-  channelEditing.value = row ?? null
-  channelForm.code = row?.code ?? ''
-  channelForm.display_name = row?.display_name ?? ''
-  channelForm.merchant_id = row?.merchant_id ?? ''
-  // 密钥只写不读：编辑时永远从空开始，留空保存即清除。
-  channelForm.secret = ''
-  channelForm.enabled = row?.enabled ?? false
-  channelOpen.value = true
+const typeLabels = computed(() => Object.fromEntries(specs.value.map((item) => [item.channel_type, item.display])))
+const typeOptions = computed(() =>
+  specs.value
+    .filter((item) => item.channel_type !== 'custom')
+    .map((item) => ({ label: item.display, value: item.channel_type }))
+)
+function specOf(channelType: string): ChannelTypeSpec | undefined {
+  return specs.value.find((item) => item.channel_type === channelType)
+}
+
+function openCreate() {
+  createForm.channel_type = typeOptions.value[0]?.value ?? 'custom'
+  createForm.code = ''
+  createForm.display_name = ''
+  createOpen.value = true
 }
 function saveChannel() {
-  const base = {
-    display_name: channelForm.display_name,
-    merchant_id: channelForm.merchant_id || null,
-    secret: channelForm.secret,
-    enabled: channelForm.enabled,
-  }
   return run(async () => {
-    if (channelEditing.value) {
-      await api(`/recharge/channels/${channelEditing.value.id}`, { method: 'PATCH', data: base })
-    } else {
-      await api('/recharge/channels', { method: 'POST', data: { ...base, code: channelForm.code } })
-    }
-    channelOpen.value = false
+    await api('/recharge/channels', {
+      method: 'POST',
+      data: {
+        code: createForm.code.trim(),
+        display_name: createForm.display_name.trim(),
+        channel_type: createForm.channel_type,
+      },
+    })
+    createOpen.value = false
     await fetchAll()
-  }, '支付渠道已保存')
+  }, '渠道已创建，继续完善配置')
+}
+
+const configFields = computed<CredentialFieldSpec[]>(() => {
+  const row = configTarget.value
+  if (!row) return []
+  const declared = specOf(row.channel_type)?.fields ?? []
+  const known = new Set(declared.map((field) => field.key))
+  // 迁移带过来的旧值也要出现在表单里，否则它永远藏在界面后面，既看不见也清不掉。
+  const legacy = row.credentials
+    .filter((item) => !known.has(item.key))
+    .map<CredentialFieldSpec>((item) => ({
+      key: item.key,
+      label: item.label,
+      help: '来自旧版单密钥字段，清空即删除。',
+      secret: item.secret,
+      required: false,
+      editable: true,
+      default: null,
+      options: [],
+      max_length: 8000,
+      multiline: false,
+    }))
+  return [...declared, ...legacy]
+})
+
+function storedOf(key: string) {
+  return configTarget.value?.credentials.find((item) => item.key === key)
+}
+function openConfig(row: RechargeChannelRow) {
+  configTarget.value = row
+  configForm.display_name = row.display_name
+  for (const key of Object.keys(drafts)) delete drafts[key]
+  for (const field of specOf(row.channel_type)?.fields ?? []) {
+    drafts[field.key] = { value: row.credentials.find((item) => item.key === field.key)?.value ?? '', dirty: false }
+  }
+  for (const item of row.credentials) {
+    if (!(item.key in drafts)) drafts[item.key] = { value: item.value ?? '', dirty: false }
+  }
+  configOpen.value = true
+}
+function touch(key: string, value: string) {
+  const draft = drafts[key]
+  if (!draft) return
+  draft.value = value
+  draft.dirty = true
+}
+function credentialPayload(): Record<string, string | null> {
+  const payload: Record<string, string | null> = {}
+  for (const field of configFields.value) {
+    const draft = drafts[field.key]
+    // 没动过的字段绝不进 body：旧版总是把空密钥发出去，改个显示名就顺手把密钥清了。
+    if (!draft?.dirty) continue
+    payload[field.key] = draft.value.trim() || null
+  }
+  return payload
+}
+function saveConfig() {
+  const row = configTarget.value
+  if (!row) return Promise.resolve()
+  return run(async () => {
+    await api(`/recharge/channels/${row.id}`, {
+      method: 'PATCH',
+      data: { display_name: configForm.display_name.trim(), credentials: credentialPayload() },
+    })
+    configOpen.value = false
+    await fetchAll()
+  }, '渠道配置已保存')
+}
+
+function hintOf(field: CredentialFieldSpec): string | undefined {
+  const stored = storedOf(field.key)
+  const parts: string[] = []
+  if (field.help) parts.push(field.help)
+  if (stored) {
+    parts.push(
+      field.secret
+        ? `已配置 · 指纹 ${stored.fingerprint} · 版本 ${stored.key_version} · ${formatDate(stored.set_at)}`
+        : `版本 ${stored.key_version} · ${formatDate(stored.set_at)}`
+    )
+  } else if (field.secret && field.required) {
+    parts.push('保存后不再回显；粘贴新值即轮换，清空即删除。')
+  }
+  return parts.length ? parts.join(' ') : undefined
+}
+function missingField(field: CredentialFieldSpec): boolean {
+  return field.required && !storedOf(field.key) && !drafts[field.key]?.value.trim()
+}
+
+function verify(row: RechargeChannelRow) {
+  verifyTarget.value = row.display_name
+  return run(async () => {
+    verifyResult.value = await api<SelfCheckResult>(`/recharge/channels/${row.id}/verify`, { method: 'POST' })
+    verifyOpen.value = true
+    await fetchAll()
+  })
+}
+function toggleEnabled(row: RechargeChannelRow) {
+  return run(async () => {
+    await api(`/recharge/channels/${row.id}`, { method: 'PATCH', data: { enabled: !row.enabled } })
+    await fetchAll()
+  }, row.enabled ? '渠道已停用' : '渠道已启用')
 }
 function deleteChannel(row: RechargeChannelRow) {
   dialog.warning({
     title: '删除支付渠道',
-    content: `确认删除“${row.display_name}”？`,
+    content: `确认删除“${row.display_name}”？已入账的流水不受影响，但渠道凭据会一并删除。`,
     positiveText: '删除',
     negativeText: '取消',
     onPositiveClick: () =>
@@ -145,30 +273,67 @@ const packageColumns: DataTableColumns<RechargePackageRow> = [
   },
 ]
 
+function configurationText(row: RechargeChannelRow): string {
+  if (!row.configuration.payable) return '不支持公众号在线下单'
+  const reasons: string[] = []
+  if (row.configuration.missing.length) reasons.push(`缺 ${row.configuration.missing.join('、')}`)
+  if (row.configuration.problem) reasons.push(row.configuration.problem)
+  // 缺项与"两种模式只配了一半"可以同时成立，只报一条会让人修完一样再撞另一样。
+  return reasons.length ? reasons.join('；') : `${row.credentials.length} 项配置已就绪`
+}
+
 const channelColumns: DataTableColumns<RechargeChannelRow> = [
   { title: '渠道代码', key: 'code', width: 140 },
-  { title: '显示名称', key: 'display_name', minWidth: 160 },
-  { title: '商户号', key: 'merchant_id', minWidth: 180, render: (row) => row.merchant_id ?? '—' },
+  { title: '显示名称', key: 'display_name', minWidth: 150 },
   {
-    title: '密钥',
-    key: 'secret_configured',
-    width: 130,
-    render: (row) => h(StatusPill, { on: row.secret_configured, onText: '已配置', offText: '未配置' }),
+    title: '类型',
+    key: 'channel_type',
+    width: 100,
+    render: (row) => typeLabels.value[row.channel_type] ?? row.channel_type,
+  },
+  {
+    title: '配置',
+    key: 'configuration',
+    minWidth: 240,
+    render: (row) =>
+      h('div', { class: 'cell-stacked' }, [
+        h(StatusPill, {
+          on: row.configuration.complete,
+          onText: '配置完整',
+          offText: row.enabled ? '配置不完整' : '待配置',
+        }),
+        h('span', { class: 'muted' }, configurationText(row)),
+      ]),
   },
   {
     title: '状态',
     key: 'enabled',
-    width: 110,
-    render: (row) => h(StatusPill, { on: row.enabled, onText: '已开通', offText: '未开通' }),
+    width: 100,
+    render: (row) => h(StatusPill, { on: row.enabled, onText: '已启用', offText: '已停用' }),
   },
-  { title: '更新时间', key: 'updated_at', width: 180, render: (row) => formatDate(row.updated_at) },
+  { title: '更新时间', key: 'updated_at', width: 170, render: (row) => formatDate(row.updated_at) },
   {
     title: '操作',
     key: 'actions',
-    width: 150,
+    width: 260,
     render: (row) =>
       h(NSpace, { size: 4 }, () => [
-        h(NButton, { size: 'small', quaternary: true, onClick: () => editChannel(row) }, () => '编辑'),
+        h(NButton, { size: 'small', onClick: () => openConfig(row) }, () => '完善配置'),
+        h(
+          NButton,
+          {
+            size: 'small',
+            quaternary: true,
+            disabled: !row.configuration.payable || busy.value,
+            onClick: () => verify(row),
+          },
+          () => '自检'
+        ),
+        h(
+          NButton,
+          { size: 'small', quaternary: true, onClick: () => toggleEnabled(row) },
+          () => (row.enabled ? '停用' : '启用')
+        ),
         h(NButton, { size: 'small', quaternary: true, type: 'error', onClick: () => deleteChannel(row) }, () => '删除'),
       ]),
   },
@@ -190,9 +355,9 @@ onMounted(load)
 </script>
 
 <template>
-  <PageHeader title="充值系统管理" description="档位、渠道与密钥在这里维护。在线支付尚未接入，档位不会自动产生入账。" />
+  <PageHeader title="充值系统管理" description="档位与支付渠道凭据在这里维护；密钥只写不读，列表只显示指纹。" />
   <NAlert type="info" style="margin-bottom: 22px">
-    当前仅支持在「用户管理」里手动入账（渠道记 manual）。下面的配置是接入支付前的准备项，可先留空。
+    渠道按厂商收全凭据并可做连通性自检；在线下单与回调入账接入前，入账仍走「用户管理」手动入账（渠道记 manual）。
   </NAlert>
 
   <section class="section">
@@ -219,9 +384,9 @@ onMounted(load)
     <div class="page-heading">
       <div>
         <h1 style="font-size: 20px">支付渠道</h1>
-        <p>渠道密钥只写不读，保存后不再回显，也不会出现在审计与日志里。</p>
+        <p>先建渠道选类型，再点「完善配置」按厂商填凭据；密钥保存后不再回显，也不会出现在审计与日志里。</p>
       </div>
-      <NButton type="primary" size="small" @click="editChannel()">新增渠道</NButton>
+      <NButton type="primary" size="small" @click="openCreate">新增渠道</NButton>
     </div>
     <NEmpty v-if="!channels.length && !busy" description="尚未开通支付渠道" />
     <NDataTable
@@ -231,7 +396,7 @@ onMounted(load)
       :loading="busy"
       :row-key="(row) => row.id"
       :bordered="false"
-      :scroll-x="1000"
+      :scroll-x="1180"
     />
   </section>
 
@@ -253,32 +418,93 @@ onMounted(load)
     </div>
   </NModal>
 
-  <NModal v-model:show="channelOpen" preset="card" :title="channelEditing ? '编辑支付渠道' : '新增支付渠道'" class="modal-form">
+  <NModal v-model:show="createOpen" preset="card" title="新增支付渠道" class="modal-form">
+    <NFormItem label="渠道类型">
+      <NSelect v-model:value="createForm.channel_type" :options="typeOptions" />
+    </NFormItem>
     <NFormItem label="渠道代码">
-      <NInput v-model:value="channelForm.code" :disabled="!!channelEditing" :maxlength="30" placeholder="小写字母、数字、-_，如 alipay" />
+      <NInput v-model:value="createForm.code" :maxlength="30" placeholder="小写字母、数字、-_，如 alipay-web" />
     </NFormItem>
-    <NFormItem label="显示名称"><NInput v-model:value="channelForm.display_name" :maxlength="100" /></NFormItem>
-    <NFormItem label="商户号"><NInput v-model:value="channelForm.merchant_id" :maxlength="200" /></NFormItem>
-    <NFormItem :label="channelEditing ? '渠道密钥（留空即清除已存密钥）' : '渠道密钥'">
-      <NInput
-        v-model:value="channelForm.secret"
-        type="password"
-        show-password-on="click"
-        :input-props="{ autocomplete: 'off' }"
-        placeholder="保存后不再回显"
-      />
-    </NFormItem>
-    <NFormItem label="开通"><NSwitch v-model:value="channelForm.enabled" /></NFormItem>
+    <NFormItem label="显示名称"><NInput v-model:value="createForm.display_name" :maxlength="100" /></NFormItem>
+    <p class="muted">代码建好后不可修改：入账流水按它记录渠道。凭据请在列表里点「完善配置」填写。</p>
     <div class="form-actions">
-      <NButton @click="channelOpen = false">取消</NButton>
+      <NButton @click="createOpen = false">取消</NButton>
       <NButton
         type="primary"
         :loading="busy"
-        :disabled="!channelForm.code.trim() || !channelForm.display_name.trim()"
+        :disabled="!createForm.code.trim() || !createForm.display_name.trim()"
         @click="saveChannel"
       >
-        保存
+        下一步：完善配置
       </NButton>
+    </div>
+  </NModal>
+
+  <NModal
+    v-model:show="configOpen"
+    preset="card"
+    :title="`完善配置 · ${configTarget?.display_name ?? ''}`"
+    class="channel-form"
+  >
+    <NFormItem label="显示名称"><NInput v-model:value="configForm.display_name" :maxlength="100" /></NFormItem>
+    <NFormItem
+      v-for="field in configFields"
+      :key="field.key"
+      :label="field.label"
+      :required="field.required"
+      :validation-status="missingField(field) ? 'error' : undefined"
+      :feedback="hintOf(field)"
+    >
+      <NSelect
+        v-if="field.options.length"
+        :value="drafts[field.key]?.value ?? ''"
+        :options="field.options.map((option) => ({ label: option, value: option }))"
+        :disabled="!field.editable"
+        @update:value="(value: string) => touch(field.key, value)"
+      />
+      <NInput
+        v-else-if="field.multiline"
+        :value="drafts[field.key]?.value ?? ''"
+        type="textarea"
+        :autosize="{ minRows: 4, maxRows: 12 }"
+        :input-props="{ autocomplete: 'off' }"
+        :maxlength="field.max_length"
+        :disabled="!field.editable"
+        :placeholder="storedOf(field.key) ? '留空即保持不变，粘贴新值即轮换' : '必填'"
+        @update:value="(value: string) => touch(field.key, value)"
+      />
+      <NInput
+        v-else
+        :value="drafts[field.key]?.value ?? ''"
+        :type="field.secret ? 'password' : 'text'"
+        :show-password-on="field.secret ? 'click' : undefined"
+        :input-props="{ autocomplete: 'off' }"
+        :maxlength="field.max_length"
+        :disabled="!field.editable"
+        :placeholder="storedOf(field.key) ? '留空即保持不变' : ''"
+        @update:value="(value: string) => touch(field.key, value)"
+      />
+    </NFormItem>
+    <div class="form-actions">
+      <NButton @click="configOpen = false">取消</NButton>
+      <NButton type="primary" :loading="busy" @click="saveConfig">保存配置</NButton>
+    </div>
+  </NModal>
+
+  <NModal v-model:show="verifyOpen" preset="card" :title="`连通性自检 · ${verifyTarget}`" class="modal-form">
+    <NAlert :type="verifyResult?.passed ? 'success' : 'error'" style="margin-bottom: 14px">
+      {{ verifyResult?.passed ? '自检通过' : '自检未通过' }} ·
+      {{ verifyResult?.mode === 'live' ? '已实际调用厂商接口' : '仅本地校验，未联调厂商接口' }}
+    </NAlert>
+    <div v-for="item in verifyResult?.checks ?? []" :key="item.name" class="check-row">
+      <StatusPill :on="item.ok" on-text="通过" off-text="未通过" />
+      <div class="cell-stacked">
+        <strong>{{ item.name }}</strong>
+        <span class="muted">{{ item.detail || '—' }}</span>
+      </div>
+    </div>
+    <div class="form-actions">
+      <NButton @click="verifyOpen = false">关闭</NButton>
     </div>
   </NModal>
 </template>
@@ -297,5 +523,20 @@ onMounted(load)
 .pill-off {
   background: #f4f5f7;
   color: #767c82;
+}
+.channel-form {
+  width: min(760px, calc(100vw - 40px));
+}
+.cell-stacked {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.check-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid #efeff5;
 }
 </style>

@@ -102,7 +102,7 @@ def decrypt_resource(apiv3_key: str, associated_data: str, nonce: str, ciphertex
 
 async def request_json(path: str, credentials: dict[str, str]) -> tuple[int, bytes, dict[str, str]]:
     """带商户签名的 GET，返回状态码、原始响应体与响应头（响应验签要用头里的签名与序列号）。"""
-    require(credentials, "mch_id", "cert_serial_no", "merchant_private_key")
+    require(credentials, "wechat", "mch_id", "cert_serial_no", "merchant_private_key")
     timestamp, nonce = str(int(time.time())), nonce_str()
     header = await asyncio.to_thread(
         authorization,
@@ -132,7 +132,7 @@ async def fetch_platform_certificates(credentials: dict[str, str]) -> tuple[list
     这个接口只需要商户侧签名，所以"能拿到并解密出证书 + 响应能被证书验过"就是商户号、
     证书序列号、私钥、APIv3 密钥四样东西同时对的最便宜证明。
     """
-    require(credentials, "apiv3_key")
+    require(credentials, "wechat", "apiv3_key")
     status, raw, headers = await request_json(CERTIFICATES_PATH, credentials)
     if status != 200:
         raise ProviderError(f"获取平台证书失败 HTTP {status}：{raw.decode()[:200]}")
@@ -159,7 +159,7 @@ async def fetch_platform_certificates(credentials: dict[str, str]) -> tuple[list
 
 
 async def self_check(credentials: dict[str, str]) -> SelfCheck:
-    require(credentials, "mch_id", "app_id", "apiv3_key", "merchant_private_key", "cert_serial_no")
+    require(credentials, "wechat", "mch_id", "app_id", "apiv3_key", "merchant_private_key", "cert_serial_no")
     checks: list[Check] = []
     try:
         key = await asyncio.to_thread(load_private_key, credentials["merchant_private_key"])

@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from typing import Any
 
+from app.services.payments import specs
+
 CHECK_TIMEOUT_SECONDS = 12
 
 
@@ -37,7 +39,9 @@ class SelfCheck:
         return all(item.ok for item in self.checks)
 
 
-def require(credentials: dict[str, str], *keys: str) -> None:
+def require(credentials: dict[str, str], channel_type: str, *keys: str) -> None:
+    """缺凭据时报中文名：让运营看得懂缺哪一项，而不是去猜 mch_id 是什么。"""
     missing = [key for key in keys if not credentials.get(key)]
     if missing:
-        raise ProviderError("缺少配置项：" + "、".join(missing))
+        labels = "、".join(specs.describe(channel_type, key)[0] for key in missing)
+        raise ProviderError("缺少配置项：" + labels)

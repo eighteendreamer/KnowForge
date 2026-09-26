@@ -51,7 +51,7 @@ def verify_webhook(raw_body: bytes, header: str, secret: str, now: float | None 
 
 
 async def self_check(credentials: dict[str, str]) -> SelfCheck:
-    require(credentials, "secret_key")
+    require(credentials, "stripe", "secret_key")
     secret = credentials["secret_key"]
     checks = [Check("密钥环境", True, f"{environment(secret)} 模式")]
     async with httpx.AsyncClient(timeout=CHECK_TIMEOUT_SECONDS) as client:
