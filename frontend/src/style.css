@@ -22,13 +22,18 @@ p { line-height: 1.7; }
 .section { padding: 24px 0; border-bottom: 1px solid #efeff5; }
 .split-view { display: grid; grid-template-columns: minmax(280px, 0.85fr) minmax(380px, 1.7fr); gap: 32px; }
 .detail-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(320px, 1fr); gap: 28px; }
-/* 文档详情两栏等高：原来左栏 iframe 定高 660、右栏随片段数无限长，两栏完全对不齐。
-   现在两栏都按 --pane-height 取高，各自内部滚动，400px 是顶栏+页头+描述条占掉的固定高度。 */
-.detail-grid { --pane-height: max(420px, calc(100dvh - 400px)); align-items: start; }
-.detail-left { height: var(--pane-height); display: flex; flex-direction: column; }
+/* 文档详情两栏等高，并且吃掉内容区剩下的全部高度：左栏 iframe 定高、右栏随片段无限长是原来的毛病。
+   高度不再用 calc(100dvh - 400px) 猜页头占掉多少（猜多就在页面底部留一条空白带），
+   而是从内容容器一路 flex 传下来，剩余高度由布局自己算，两栏各自内部滚动。 */
+.n-layout-scroll-container:has(> .detail-page) { display: flex; flex-direction: column; }
+.detail-page { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.detail-page > .n-spin-container { flex: 1; min-height: 0; }
+.detail-page > .n-spin-container > .n-spin-content { height: 100%; display: flex; flex-direction: column; }
+.detail-grid { flex: 1; min-height: 420px; }
+.detail-left { display: flex; flex-direction: column; min-height: 0; }
 .detail-left :is(.n-spin-container, .n-spin-content) { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .detail-left .preview { flex: 1; min-height: 320px; height: auto; }
-.detail-right { height: var(--pane-height); overflow-y: auto; padding-right: 6px; }
+.detail-right { min-height: 0; overflow-y: auto; padding-right: 6px; }
 .detail-right .n-tabs-nav { position: sticky; top: 0; z-index: 2; background: #fff; }
 .metric-strip { display: grid; grid-template-columns: repeat(4, 1fr); padding: 8px 0 28px; border-bottom: 1px solid #efeff5; margin-bottom: 28px; }
 .metric { padding: 0 28px; border-right: 1px solid #efeff5; }
@@ -55,6 +60,7 @@ p { line-height: 1.7; }
   .split-view, .detail-grid { grid-template-columns: 1fr; }
   .shell-header { padding: 0 16px; }
   /* 单栏时不再各自滚动：两栏叠着各自一块固定高度反而更难用，交回页面滚动。 */
+  .detail-grid { flex: none; min-height: 0; }
   .detail-left, .detail-right { height: auto; }
   .detail-left .preview { flex: none; height: 620px; }
   .detail-right { overflow: visible; padding-right: 0; }
