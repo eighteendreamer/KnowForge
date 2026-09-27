@@ -51,16 +51,41 @@ async def event_rows(context, order_id: int) -> list[PaymentOrderEvent]:
         return list(rows)
 
 
-async def checkout(context, payment_keys, monkeypatch, code="alipay"):
+QR_CODE = "https://qr.alipay.com/kf001"
+
+
+def precreate_ok(payment_keys, amount: str | None = None):
+    """支付宝预下单的正常应答：拿 qr_code，门户据此渲染二维码。
+
+    amount 传了才核对金额，因为折扣单发出去的是折后价，默认不锁死金额才能让各家用例复用。
+    """
+
+    def handler(method: str, url: str, data: dict[str, str], headers: dict[str, str]) -> StubResponse:
+        assert data["method"] == "alipay.trade.precreate", data.get("method")
+        if amount is not None:
+            assert json.loads(data["biz_content"])["total_amount"] == amount
+        return StubResponse(
+            200,
+            signed_node_response(
+                "alipay_trade_precreate_response",
+                {"code": "10000", "msg": "Success", "qr_code": QR_CODE},
+                payment_keys["private_pem"],
+            ),
+        )
+
+    return handler
+
+
+async def checkout(context, payment_keys, monkeypatch, code="alipay", promo_code=""):
     """备好一个能下单的渠道 + 100 元送 20 元的档位，然后真走一次门户下单。"""
     package = await create_package(context, amount_cent=10000, bonus_cent=2000)
     channel = await create_channel(context, payment_keys, code=code)
     assert package.status_code == 200 and channel.status_code == 200, package.text + channel.text
-    install(monkeypatch, alipay, lambda *a: StubResponse(200, "{}"))
+    install(monkeypatch, alipay, precreate_ok(payment_keys))
     return await context["client"].post(
         "/v1/portal/orders",
         headers=context["customer_headers"],
-        json={"channel_code": code, "package_id": package.json()["data"]["id"]},
+        json={"channel_code": code, "package_id": package.json()["data"]["id"], "promo_code": promo_code},
     )
 
 
@@ -103,21 +128,27 @@ async def test_recent_orders_are_listed_for_their_owner_only(context, payment_ke
     assert elsewhere.json()["data"]["items"] == []
 
 
-async def test_checkout_returns_a_redirect_and_freezes_the_amount_snapshot(
-    context, payment_keys, monkeypatch
-):
-    """下单成功只是"能去付了"：钱没到，订单必须停在 pending，账本一行都不能有。"""
-    response = await checkout(context, payment_keys, monkeypatch)
+async def test_checkout_returns_a_qr_code_and_freezes_the_amount_snapshot(context, payment_keys, monkeypatch):
+    """下单成功只是"能去扫了"：钱没到，订单必须停在 pending，账本一行都不能有。"""
+    package = await create_package(context, amount_cent=10000, bonus_cent=2000)
+    await create_channel(context, payment_keys)
+    stub = install(monkeypatch, alipay, precreate_ok(payment_keys))
+    response = await context["client"].post(
+        "/v1/portal/orders",
+        headers=context["customer_headers"],
+        json={"channel_code": "alipay", "package_id": package.json()["data"]["id"]},
+    )
     assert response.status_code == 200, response.text
     data = response.json()["data"]
     assert data["out_trade_no"].startswith("KF") and data["status"] == "pending"
     assert data["amount_cent"] == 10000 and data["bonus_cent"] == 2000
+    assert data["payable_cent"] == 10000 and data["discount_cent"] == 0
     assert data["credited_cent"] == 0
-    assert data["code_url"] is None and data["redirect_url"].startswith(GATEWAY)
-    query = urllib.parse.parse_qs(urllib.parse.urlsplit(data["redirect_url"]).query)
-    assert query["method"] == ["alipay.trade.page.pay"]
+    assert data["code_url"] == QR_CODE and data["redirect_url"] is None
+    sent = stub.calls[0]["data"]
+    assert json.loads(sent["biz_content"])["out_trade_no"] == data["out_trade_no"]
     # 渠道里配了回调地址就用它；站点基址只是兜底。两者都没有时支付宝只能靠主动查单入账。
-    assert query["notify_url"] == ["https://pay.example.test/v1/payments/notify/alipay"]
+    assert sent["notify_url"] == "https://pay.example.test/v1/payments/notify/alipay"
     assert await balance(context) == 0
     assert await ledger_rows(context) == []
     stored = await order_row(context, data["out_trade_no"])
@@ -216,7 +247,7 @@ async def test_orders_are_invisible_to_anyone_but_their_owner(context, payment_k
 async def test_a_pile_of_unpaid_orders_blocks_new_ones(context, payment_keys, monkeypatch):
     package = await create_package(context, amount_cent=10000, label="刷屏档")
     await create_channel(context, payment_keys, code="spam")
-    install(monkeypatch, alipay, lambda *a: StubResponse(200, "{}"))
+    install(monkeypatch, alipay, precreate_ok(payment_keys))
     for _ in range(payments.MAX_OPEN_ORDERS):
         created = await context["client"].post(
             "/v1/portal/orders",

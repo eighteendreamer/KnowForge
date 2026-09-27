@@ -2,7 +2,6 @@ import asyncio
 import base64
 import hashlib
 import json
-import urllib.parse
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -31,7 +30,6 @@ from app.services.payments.providers.base import (
 # 直接取本机时间会在部署到非 CST 机器时报 Invalid signature，所以显式钉住时区。
 CHINA_TZ = ZoneInfo("Asia/Shanghai")
 SELF_CHECK_OUT_TRADE_NO = "KFSELFCHECK00000000000000000"
-PAGE_PAY_METHOD = "alipay.trade.page.pay"
 # 交易关闭只有 TRADE_CLOSED，TRADE_SUCCESS 与 TRADE_FINISHED 都算钱已到账。
 TRADE_PAID_STATUSES = frozenset({"TRADE_SUCCESS", "TRADE_FINISHED"})
 # 通知验签要剔除的两个键。请求签名只剔 sign（sign_type 参与签名），两者规则不同，别混用。
@@ -122,10 +120,6 @@ def common_params(
     return params
 
 
-def page_pay_url(gateway: str, params: dict[str, str]) -> str:
-    return f"{gateway}?{urllib.parse.urlencode(params)}"
-
-
 def now_stamp() -> str:
     return datetime.now(CHINA_TZ).strftime("%Y-%m-%d %H:%M:%S")
 
@@ -162,19 +156,29 @@ class GatewayResponse:
     sign: str | None = None
 
 
-async def query_trade(credentials: dict[str, str], out_trade_no: str) -> GatewayResponse:
-    """查单。自检用它打一个不存在的单号，对账用它确认真实订单。"""
+async def execute(
+    credentials: dict[str, str],
+    method: str,
+    biz_content: dict[str, Any],
+    *,
+    node: str,
+    notify_url: str | None = None,
+    return_url: str | None = None,
+) -> GatewayResponse:
+    """签名、发请求、按业务节点截原文。下单与查单走同一条路，只差方法名与节点名。"""
     require(credentials, "alipay", "app_id", "app_private_key", "gateway_url")
     params = common_params(
         app_id=credentials["app_id"],
-        method="alipay.trade.query",
-        biz_content={"out_trade_no": out_trade_no},
+        method=method,
+        biz_content=biz_content,
         timestamp=now_stamp(),
+        notify_url=notify_url,
+        return_url=return_url,
     )
     signed = await asyncio.to_thread(sign_params, params, credentials["app_private_key"])
     async with httpx.AsyncClient(timeout=CHECK_TIMEOUT_SECONDS) as client:
         response = await client.post(credentials["gateway_url"], data=signed)
-    found = extract_node(response.text, "alipay_trade_query_response")
+    found = extract_node(response.text, node)
     if found is not None:
         payload, body = found
         return GatewayResponse(payload, body, _top_level_sign(response.text))
@@ -183,6 +187,13 @@ async def query_trade(credentials: dict[str, str], out_trade_no: str) -> Gateway
         payload, _ = error
         return GatewayResponse({**payload, "code": payload.get("code") or "error_response"}, None, None)
     return GatewayResponse({"code": "unparsable", "msg": response.text[:200]}, None, None)
+
+
+async def query_trade(credentials: dict[str, str], out_trade_no: str) -> GatewayResponse:
+    """查单。自检用它打一个不存在的单号，对账用它确认真实订单。"""
+    return await execute(
+        credentials, "alipay.trade.query", {"out_trade_no": out_trade_no}, node="alipay_trade_query_response"
+    )
 
 
 def _top_level_sign(raw: str) -> str | None:
@@ -215,26 +226,32 @@ def cent_to_yuan(amount_cent: int) -> str:
 
 
 async def create_order(credentials: dict[str, str], order: OrderRequest) -> OrderTicket:
-    """电脑网站支付只生成一条带签名的跳转地址，真实扣款发生在支付宝页面上。
+    """`alipay.trade.precreate` 预下单，返回 `qr_code` 串给门户渲染成二维码。
 
-    因此下单成功不等于收到钱，入账只能靠回调或查单确认。
+    选它而不是 `alipay.trade.page.pay`：门户要的是"在本页扫码付"，跳转式会让用户离开结算页，
+    回来时订单状态还没确认，看起来像没付。代价是应用必须签约当面付，没签约时厂商会回
+    `isv.insufficient-isv-permissions`，那条 sub_code 由自检原样摊给运营，不做静默回落。
     """
-    require(credentials, "alipay", "app_id", "app_private_key", "gateway_url")
-    params = common_params(
-        app_id=credentials["app_id"],
-        method=PAGE_PAY_METHOD,
-        biz_content={
-            "product_code": "FAST_INSTANT_TRADE_PAY",
+    result = await execute(
+        credentials,
+        "alipay.trade.precreate",
+        {
             "out_trade_no": order.out_trade_no,
             "total_amount": cent_to_yuan(order.amount_cent),
             "subject": order.subject[:256],
         },
-        timestamp=now_stamp(),
-        notify_url=order.notify_url or credentials.get("notify_url") or None,
-        return_url=order.return_url or credentials.get("return_url") or None,
+        node="alipay_trade_precreate_response",
+        notify_url=order.notify_url,
     )
-    signed = await asyncio.to_thread(sign_params, params, credentials["app_private_key"])
-    return OrderTicket(redirect_url=page_pay_url(credentials["gateway_url"], signed))
+    node = result.payload
+    code = str(node.get("code") or "")
+    if code != "10000":
+        detail = f"code={code or '—'} sub_code={node.get('sub_code') or '—'} {node.get('sub_msg') or node.get('msg') or ''}".strip()
+        raise ProviderError(f"支付宝下单失败：{detail[:220]}")
+    qr_code = node.get("qr_code")
+    if not qr_code:
+        raise ProviderError("支付宝下单响应里没有 qr_code")
+    return OrderTicket(code_url=str(qr_code))
 
 
 async def query_order(credentials: dict[str, str], out_trade_no: str) -> PaidState:

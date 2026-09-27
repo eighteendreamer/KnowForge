@@ -33,6 +33,7 @@ async def seed_order(alipay_channel, context, status: str = "pending", **overrid
             package_id=alipay_channel["package_id"],
             amount_cent=10000,
             bonus_cent=2000,
+            payable_cent=10000,
             status=status,
             expires_at=NOW + timedelta(minutes=30),
             **overrides,

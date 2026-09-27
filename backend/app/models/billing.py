@@ -48,6 +48,10 @@ class PaymentOrder(IdentityMixin, UpdatedMixin, Base):
     __table_args__ = (
         CheckConstraint("amount_cent > 0", name="amount_positive"),
         CheckConstraint("bonus_cent >= 0", name="bonus_non_negative"),
+        # 折扣不能把单子抹到 0：厂商侧最小金额是 1 分，0 元单也失去"钱确实经过厂商"这层证明。
+        CheckConstraint("payable_cent > 0", name="payable_positive"),
+        CheckConstraint("discount_cent >= 0", name="discount_non_negative"),
+        CheckConstraint("discount_cent < amount_cent", name="discount_below_amount"),
         CheckConstraint("status IN ('created', 'pending', 'paid', 'expired', 'failed')", name="status"),
         Index("idx_payment_orders_account_time", "account_id", "created_at"),
         # 关单与对账都按 (status, expires_at) 扫，没有这个索引每轮都要全表扫。
@@ -60,6 +64,10 @@ class PaymentOrder(IdentityMixin, UpdatedMixin, Base):
     # 金额与赠送在下单时冻结成快照：档位后来改了也不影响已经付过钱的这一单该入账多少。
     amount_cent: Mapped[int] = mapped_column(BigInteger)
     bonus_cent: Mapped[int] = mapped_column(BigInteger, server_default="0")
+    # 促销码只改实付：payable_cent 是发给厂商的金额，也是入账时核对回执金额的基准。
+    payable_cent: Mapped[int] = mapped_column(BigInteger)
+    discount_cent: Mapped[int] = mapped_column(BigInteger, server_default="0")
+    promo_code_id: Mapped[int | None] = mapped_column(ForeignKey("recharge_promo_codes.id"))
     currency: Mapped[str] = mapped_column(String(3), server_default="CNY")
     status: Mapped[str] = mapped_column(String(20), server_default="created")
     provider_trade_no: Mapped[str | None] = mapped_column(String(64))
@@ -81,6 +89,39 @@ class PaymentOrderEvent(IdentityMixin, CreatedMixin, Base):
     kind: Mapped[str] = mapped_column(String(40))
     # 只放摘要与白名单标量（厂商返回码、金额、CAS 结果），原始回调报文与密钥一律不进这里。
     detail: Mapped[dict[str, Any]] = mapped_column(JSONB, server_default="{}")
+
+
+class RechargePromoCode(IdentityMixin, UpdatedMixin, Base):
+    """促销码。抵扣只改"实付多少"，不改"到账多少"——活动让掉的是收单的钱，不是给用户的额度。
+
+    码本身按大写存（`code = upper(code)` 由 CHECK 兜住），比对时不再做大小写特判。
+    """
+
+    __tablename__ = "recharge_promo_codes"
+    __table_args__ = (
+        CheckConstraint("code = upper(code)", name="code_uppercase"),
+        CheckConstraint("code <> ''", name="code_not_blank"),
+        CheckConstraint("kind IN ('amount_off', 'percent')", name="kind"),
+        CheckConstraint(
+            "(kind = 'percent' AND value >= 1 AND value <= 90) OR (kind = 'amount_off' AND value > 0)",
+            name="value_within_kind",
+        ),
+        CheckConstraint("min_amount_cent >= 0", name="min_amount_non_negative"),
+        CheckConstraint("used_count >= 0", name="used_count_non_negative"),
+    )
+    code: Mapped[str] = mapped_column(String(32), unique=True)
+    label: Mapped[str] = mapped_column(String(100))
+    kind: Mapped[str] = mapped_column(String(16), server_default="amount_off")
+    # amount_off 是"立减多少分"，percent 是"打几折的百分比整数"，同一个列两种含义靠 kind 区分。
+    value: Mapped[int] = mapped_column(Integer)
+    min_amount_cent: Mapped[int] = mapped_column(BigInteger, server_default="0")
+    starts_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    max_uses: Mapped[int | None] = mapped_column(Integer)
+    per_account_limit: Mapped[int | None] = mapped_column(Integer)
+    # 只在订单真的入账时才 +1：下单不占额度，否则放弃付款会把活动量吃光。
+    used_count: Mapped[int] = mapped_column(Integer, server_default="0")
+    enabled: Mapped[bool] = mapped_column(Boolean, server_default="true")
 
 
 class RechargePackage(IdentityMixin, UpdatedMixin, Base):

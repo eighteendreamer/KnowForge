@@ -12,7 +12,13 @@ from typing import Any
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import BalanceTransaction, PaymentOrder, PaymentOrderEvent, RechargeChannel
+from app.models import (
+    BalanceTransaction,
+    PaymentOrder,
+    PaymentOrderEvent,
+    RechargeChannel,
+    RechargePromoCode,
+)
 
 CREDITED = "credited"
 DUPLICATE = "duplicate"
@@ -65,13 +71,14 @@ async def mark_paid_and_credit(
 
     source 是渠道 code（写进账本，回答"这笔钱从哪个通道来的"），note 记录是谁确认的（回调/查单/人工）。
     """
-    if received_cent is not None and received_cent != order.amount_cent:
+    # 核对基准是 payable_cent 而不是档位原价：用了促销码时厂商实收就是折后价。
+    if received_cent is not None and received_cent != order.payable_cent:
         # 金额对不上多半是套错了单号或厂商侧改了价，这种单子必须留给人查，不能按我们的记录入账。
         await record_event(
             session,
             order.id,
             MISMATCH,
-            {"expected_cent": order.amount_cent, "received_cent": received_cent, "by": source},
+            {"expected_cent": order.payable_cent, "received_cent": received_cent, "by": source},
         )
         return Settlement(
             MISMATCH, order.id, order.status, detail="厂商回执金额与订单不一致，已挂起待人工核对"
@@ -116,6 +123,13 @@ async def mark_paid_and_credit(
     )
     session.add(entry)
     await session.flush()
+    if order.promo_code_id:
+        # 促销额度只在真的收到钱时占用：下单就计数的话，放弃付款会把活动量白白吃光。
+        await session.execute(
+            update(RechargePromoCode)
+            .where(RechargePromoCode.id == order.promo_code_id)
+            .values(used_count=RechargePromoCode.used_count + 1)
+        )
     await record_event(
         session,
         order.id,
@@ -124,6 +138,8 @@ async def mark_paid_and_credit(
             "by": source,
             "amount_cent": order.amount_cent,
             "bonus_cent": order.bonus_cent,
+            "payable_cent": order.payable_cent,
+            "discount_cent": order.discount_cent,
             "credited_cent": credited,
             "from_status": previous,
         },
@@ -146,6 +162,8 @@ def _ledger_note(order: PaymentOrder, previous: str, note: str) -> str:
     parts = [f"在线充值 {_yuan(order.amount_cent)}"]
     if order.bonus_cent:
         parts.append(f"赠送 {_yuan(order.bonus_cent)}")
+    if order.discount_cent:
+        parts.append(f"促销抵扣 {_yuan(order.discount_cent)}（实付 {_yuan(order.payable_cent)}）")
     if previous in ("expired", "failed"):
         parts.append(f"迟到的支付（原状态 {previous}）")
     if note:

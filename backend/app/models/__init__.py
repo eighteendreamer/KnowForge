@@ -6,6 +6,7 @@ from app.models.billing import (
     RechargeChannel,
     RechargeChannelCredential,
     RechargePackage,
+    RechargePromoCode,
 )
 from app.models.identity import Account, ApiKey, ApiLog, AuditLog
 from app.models.knowledge import Category, Chunk, ChunkTag, Document, DocumentTag, Tag
@@ -39,6 +40,7 @@ __all__ = [
     "RechargeChannel",
     "RechargeChannelCredential",
     "RechargePackage",
+    "RechargePromoCode",
     "RelevanceJudgment",
     "RuntimeConfiguration",
     "RuntimeState",

@@ -36,6 +36,7 @@ async def make_order(
             channel_id=channel_id,
             amount_cent=10000,
             bonus_cent=2000,
+            payable_cent=extra.pop("payable_cent", 10000),
             status=status,
             expires_at=expires_at,
             **extra,

@@ -4,7 +4,13 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import BalanceTransaction, PaymentOrder, RechargeChannel, RechargePackage
+from app.models import (
+    BalanceTransaction,
+    PaymentOrder,
+    RechargeChannel,
+    RechargePackage,
+    RechargePromoCode,
+)
 from app.services.payments import credentials as channel_credentials
 
 
@@ -58,6 +64,9 @@ def order_view(row: PaymentOrder, channel_name: str = "") -> dict[str, Any]:
         "channel_name": channel_name,
         "amount_cent": row.amount_cent,
         "bonus_cent": row.bonus_cent,
+        # 折扣与实付单独回显：门户结算页要显示"促销抵扣"，只给原价就会让人以为算错了。
+        "discount_cent": row.discount_cent,
+        "payable_cent": row.payable_cent,
         "credited_cent": row.amount_cent + row.bonus_cent if settled else 0,
         "currency": row.currency,
         "code_url": None if settled else row.code_url,
@@ -66,6 +75,26 @@ def order_view(row: PaymentOrder, channel_name: str = "") -> dict[str, Any]:
         "created_at": row.created_at,
         "expires_at": row.expires_at,
         "paid_at": row.paid_at,
+    }
+
+
+def promo_view(row: RechargePromoCode) -> dict[str, Any]:
+    """促销码回显。`remaining` 由已用/总量现算，管理列表要直接看到还剩多少名额。"""
+    return {
+        "id": row.id,
+        "code": row.code,
+        "label": row.label,
+        "kind": row.kind,
+        "value": row.value,
+        "min_amount_cent": row.min_amount_cent,
+        "starts_at": row.starts_at,
+        "ends_at": row.ends_at,
+        "max_uses": row.max_uses,
+        "remaining_uses": None if row.max_uses is None else max(0, row.max_uses - row.used_count),
+        "per_account_limit": row.per_account_limit,
+        "used_count": row.used_count,
+        "enabled": row.enabled,
+        "updated_at": row.updated_at,
     }
 
 

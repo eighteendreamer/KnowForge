@@ -74,28 +74,65 @@ def test_cent_and_yuan_conversions_never_lose_a_fen():
     assert yuan_to_cent("x") is None
 
 
-async def test_alipay_page_pay_orders_are_a_signed_redirect_not_a_claim_of_payment(monkeypatch, payment_keys):
-    """网站支付下单只产出跳转地址，收到钱与否必须留给回调或查单，所以这里不该有 provider 交易号。"""
+async def test_alipay_precreate_returns_a_qr_code_not_a_claim_of_payment(monkeypatch, payment_keys):
+    """预下单只产出二维码串，收到钱与否留给回调或查单，所以不该有 provider 交易号。"""
 
     def handler(method: str, url: str, data: dict[str, str], headers: dict[str, str]) -> StubResponse:
-        raise AssertionError("页面支付下单不发请求，签名在本地算完就该返回")
+        assert method == "POST" and url == "https://openapi.alipay.com/gateway.do"
+        assert data["method"] == "alipay.trade.precreate"
+        assert data["notify_url"] == ORDER.notify_url
+        assert json.loads(data["biz_content"]) == {
+            "out_trade_no": ORDER.out_trade_no,
+            "total_amount": "100.00",
+            "subject": ORDER.subject,
+        }
+        # 签名要能按"升序拼 k=v"的规则从发出去的参数里验回来，否则厂商第一步就会拒。
+        assert alipay.verify(payment_keys["public_pem"], alipay.request_sign_content(data), data["sign"])
+        return StubResponse(
+            200,
+            signed_node_response(
+                "alipay_trade_precreate_response",
+                {
+                    "code": "10000",
+                    "msg": "Success",
+                    "out_trade_no": ORDER.out_trade_no,
+                    "qr_code": "https://qr.alipay.com/kf001",
+                },
+                payment_keys["private_pem"],
+            ),
+        )
 
-    install(monkeypatch, alipay, handler)
+    stub = install(monkeypatch, alipay, handler)
     ticket = await alipay.create_order(alipay_credentials(payment_keys), ORDER)
-    assert ticket.code_url is None and ticket.provider_trade_no is None
-    query = urllib.parse.parse_qs(urllib.parse.urlsplit(ticket.redirect_url or "").query)
-    assert ticket.redirect_url.startswith("https://openapi.alipay.com/gateway.do?")
-    params = {key: values[0] for key, values in query.items()}
-    assert params["method"] == "alipay.trade.page.pay"
-    assert params["notify_url"] == ORDER.notify_url and params["return_url"] == ORDER.return_url
-    assert json.loads(params["biz_content"]) == {
-        "product_code": "FAST_INSTANT_TRADE_PAY",
-        "out_trade_no": ORDER.out_trade_no,
-        "total_amount": "100.00",
-        "subject": ORDER.subject,
-    }
-    # 地址里的签名要能被验回来，否则跳过去也是"无效签名"。
-    assert alipay.verify(payment_keys["public_pem"], alipay.request_sign_content(params), params["sign"])
+    assert ticket.code_url == "https://qr.alipay.com/kf001"
+    assert ticket.redirect_url is None and ticket.provider_trade_no is None
+    assert stub.calls[0]["url"] == "https://openapi.alipay.com/gateway.do"
+
+
+async def test_alipay_precreate_failure_carries_the_provider_reason(monkeypatch, payment_keys):
+    """没签约当面付时的 sub_code 是唯一能让人知道该去开通什么的线索，不能糊成"下单失败"。"""
+    install(
+        monkeypatch,
+        alipay,
+        lambda *a: StubResponse(
+            200,
+            signed_node_response(
+                "alipay_trade_precreate_response",
+                {
+                    "code": "40004",
+                    "sub_code": "isv.insufficient-isv-permissions",
+                    "sub_msg": "ISV权限不足",
+                },
+                payment_keys["private_pem"],
+            ),
+        ),
+    )
+    try:
+        await alipay.create_order(alipay_credentials(payment_keys), ORDER)
+    except ProviderError as reason:
+        assert "isv.insufficient-isv-permissions" in str(reason)
+    else:  # pragma: no cover
+        raise AssertionError("厂商拒单必须抛错")
 
 
 async def test_alipay_query_order_refuses_to_report_payment_without_a_verified_response(

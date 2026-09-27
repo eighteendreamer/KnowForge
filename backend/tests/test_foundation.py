@@ -15,7 +15,7 @@ async def test_migrated_schema_and_trigram(context):
     async with context["app"].state.engine.connect() as connection:
         tables = await connection.run_sync(lambda conn: set(inspect(conn).get_table_names()))
         assert set(Base.metadata.tables) <= tables
-        assert len(Base.metadata.tables) == 23
+        assert len(Base.metadata.tables) == 24
         assert await connection.scalar(text("SELECT similarity('redis', 'redsi')")) > 0
         indexes = await connection.run_sync(lambda conn: inspect(conn).get_indexes("chunks"))
         assert any(index["name"] == "idx_chunks_text_trgm" for index in indexes)

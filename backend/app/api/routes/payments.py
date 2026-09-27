@@ -18,10 +18,10 @@ from app.api.routes.recharge import master_key
 from app.core.config import Settings
 from app.core.errors import AppError, success
 from app.models import PaymentOrder, RechargeChannel, RechargePackage
-from app.schemas.billing import OrderInput
+from app.schemas.billing import OrderInput, PromoQuoteInput
 from app.services import billing
 from app.services.payments import credentials as channel_credentials
-from app.services.payments import settlement
+from app.services.payments import promo, settlement
 from app.services.payments.providers import registry
 from app.services.payments.providers.base import NotifyRequest, OrderRequest, ProviderError
 
@@ -81,6 +81,16 @@ async def _reject_provider(session: AsyncSession, order: PaymentOrder, detail: s
     await session.commit()
 
 
+@router.post("/promo/quote")
+async def quote_promo(body: PromoQuoteInput, session: Session, user: PortalAccount):
+    """结算页点"应用"时算一次价。只读不写：促销额度在订单真的付掉时才占用。"""
+    package = await session.get(RechargePackage, body.package_id)
+    if package is None or not package.enabled:
+        raise AppError(404, 1001, "充值档位不存在或已下架")
+    result = await promo.quote(session, package, body.promo_code, user.id, now=datetime.now(UTC))
+    return success(result.view())
+
+
 @router.post("/orders")
 async def create_order(body: OrderInput, request: Request, session: Session, user: PortalAccount):
     settings = request.app.state.settings
@@ -89,6 +99,10 @@ async def create_order(body: OrderInput, request: Request, session: Session, use
     package = await session.get(RechargePackage, body.package_id)
     if package is None or not package.enabled:
         raise AppError(404, 1001, "充值档位不存在或已下架")
+    # 报价在结算页算过一次，这里重算一遍：客户端传来的任何金额都不进这条链路。
+    priced = await promo.quote(session, package, body.promo_code, user.id, now=datetime.now(UTC))
+    if body.promo_code.strip() and not priced.applied:
+        raise AppError(400, 1001, priced.reason or "促销码不可用")
     now = datetime.now(UTC)
     open_count = await session.scalar(
         select(func.count())
@@ -107,15 +121,23 @@ async def create_order(body: OrderInput, request: Request, session: Session, use
         account_id=user.id,
         channel_id=channel.id,
         package_id=package.id,
-        amount_cent=package.amount_cent,
-        bonus_cent=package.bonus_cent,
+        amount_cent=priced.amount_cent,
+        bonus_cent=priced.bonus_cent,
+        payable_cent=priced.payable_cent,
+        discount_cent=priced.discount_cent,
+        promo_code_id=priced.code_id,
         status="created",
         expires_at=now + ORDER_TTL,
     )
     session.add(order)
     # 事件行按 order_id 外键引用，得先 flush 拿到主键，不能等 commit。
     await session.flush()
-    await settlement.record_event(session, order.id, "order_created", {"channel": channel.channel_type})
+    await settlement.record_event(
+        session,
+        order.id,
+        "order_created",
+        {"channel": channel.channel_type, "discount_cent": order.discount_cent},
+    )
     await session.commit()
 
     values = await channel_credentials.load_values(session, master, channel.id, include_secrets=True)
@@ -124,7 +146,7 @@ async def create_order(body: OrderInput, request: Request, session: Session, use
     await session.commit()
     request_payload = OrderRequest(
         out_trade_no=order.out_trade_no,
-        amount_cent=order.amount_cent,
+        amount_cent=order.payable_cent,
         subject=f"KnowForge 额度充值 · {package.label}",
         notify_url=notify_url,
         return_url=return_url,

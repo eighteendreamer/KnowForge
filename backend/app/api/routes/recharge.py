@@ -6,13 +6,21 @@ import httpx
 from fastapi import APIRouter, Query, Request
 from pydantic import SecretStr
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 
 from app.api.deps import Session, SuperAdmin
 from app.core.errors import AppError, success
-from app.models import Account, PaymentOrder, PaymentOrderEvent, RechargeChannel, RechargePackage
-from app.schemas.billing import ChannelInput, ChannelPatch, PackageInput
+from app.models import (
+    Account,
+    PaymentOrder,
+    PaymentOrderEvent,
+    RechargeChannel,
+    RechargePackage,
+    RechargePromoCode,
+)
+from app.schemas.billing import ChannelInput, ChannelPatch, PackageInput, PromoInput, PromoPatch
 from app.services.audit import record_audit
-from app.services.billing import channel_view, order_view, package_view
+from app.services.billing import channel_view, order_view, package_view, promo_view
 from app.services.payments import credentials as channel_credentials
 from app.services.payments import reconcile, specs
 from app.services.payments.providers import registry
@@ -251,6 +259,71 @@ async def verify_channel(channel_id: int, request: Request, session: Session, us
     return success(
         {"channel_id": row.id, "channel_type": row.channel_type, "passed": result.passed, **result.view()}
     )
+
+
+@router.get("/promo-codes")
+async def list_promo_codes(session: Session, user: SuperAdmin):
+    rows = await session.scalars(select(RechargePromoCode).order_by(RechargePromoCode.id.desc()))
+    return success({"items": [promo_view(row) for row in rows]})
+
+
+@router.post("/promo-codes")
+async def create_promo_code(body: PromoInput, request: Request, session: Session, user: SuperAdmin):
+    row = RechargePromoCode(**body.model_dump())
+    session.add(row)
+    try:
+        await session.flush()
+    except IntegrityError as reason:
+        await session.rollback()
+        raise AppError(409, 1001, f"促销码 {body.code} 已存在") from reason
+    record_audit(session, request, user, "create", "recharge_promo_code", row.id, {"code": row.code})
+    await session.commit()
+    return success(promo_view(row))
+
+
+@router.patch("/promo-codes/{promo_id}")
+async def patch_promo_code(
+    promo_id: int, body: PromoPatch, request: Request, session: Session, user: SuperAdmin
+):
+    row = await session.get(RechargePromoCode, promo_id)
+    if row is None:
+        raise AppError(404, 1001, "促销码不存在")
+    for key, value in body.model_dump(exclude_unset=True).items():
+        setattr(row, key, value)
+    if row.kind == "percent" and not 1 <= row.value <= 90:
+        raise AppError(400, 1001, "折扣百分比要在 1 到 90 之间")
+    if row.kind == "amount_off" and row.value < 1:
+        raise AppError(400, 1001, "立减金额要大于 0")
+    record_audit(
+        session,
+        request,
+        user,
+        "update",
+        "recharge_promo_code",
+        row.id,
+        {"fields": sorted(body.model_dump(exclude_unset=True)), "code": row.code},
+    )
+    await session.commit()
+    # updated_at 由服务端生成，commit 后必须重新取一次，直接读会让异步会话去懒加载。
+    await session.refresh(row)
+    return success(promo_view(row))
+
+
+@router.delete("/promo-codes/{promo_id}")
+async def delete_promo_code(promo_id: int, request: Request, session: Session, user: SuperAdmin):
+    row = await session.get(RechargePromoCode, promo_id)
+    if row is None:
+        raise AppError(404, 1001, "促销码不存在")
+    # 订单上的 promo_code_id 是普通外键，删掉会让历史订单的折扣来源消失，所以有单就只许停用。
+    used = await session.scalar(
+        select(func.count()).select_from(PaymentOrder).where(PaymentOrder.promo_code_id == row.id)
+    )
+    if used:
+        raise AppError(409, 1001, f"该促销码已被 {used} 张订单使用，只能停用不能删除")
+    await session.delete(row)
+    record_audit(session, request, user, "delete", "recharge_promo_code", promo_id, {"code": row.code})
+    await session.commit()
+    return success({"id": promo_id})
 
 
 @router.get("/orders")
