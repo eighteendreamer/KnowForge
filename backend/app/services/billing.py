@@ -55,13 +55,16 @@ def package_view(row: RechargePackage) -> dict[str, Any]:
     }
 
 
-def order_view(row: PaymentOrder, channel_name: str = "") -> dict[str, Any]:
+def order_view(row: PaymentOrder, channel_name: str = "", channel_code: str = "") -> dict[str, Any]:
     """订单对外视图。付款要用的 code_url / redirect_url 只在未付时有意义，付完就不必再回传。"""
     settled = row.status == "paid"
     return {
         "out_trade_no": row.out_trade_no,
         "status": row.status,
         "channel_name": channel_name,
+        "channel_code": channel_code,
+        # 带 package_id 是为了门户能"接着付同一张单"回到结算页，而不是被迫下一张新单。
+        "package_id": row.package_id,
         "amount_cent": row.amount_cent,
         "bonus_cent": row.bonus_cent,
         # 折扣与实付单独回显：门户结算页要显示"促销抵扣"，只给原价就会让人以为算错了。

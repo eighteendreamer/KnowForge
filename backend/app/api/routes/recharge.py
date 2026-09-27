@@ -370,8 +370,7 @@ async def list_orders(
         {
             "items": [
                 {
-                    **order_view(order, name),
-                    "channel_code": code,
+                    **order_view(order, name, code),
                     "account_username": username,
                     "account_id": order.account_id,
                 }
@@ -397,8 +396,7 @@ async def order_detail(reference: str, session: Session, user: SuperAdmin):
     )
     return success(
         {
-            **order_view(order, channel.display_name if channel else ""),
-            "channel_code": channel.code if channel else "",
+            **order_view(order, channel.display_name if channel else "", channel.code if channel else ""),
             "account_username": account.username if account else "",
             "events": [
                 {"kind": item.kind, "detail": item.detail, "created_at": item.created_at} for item in events

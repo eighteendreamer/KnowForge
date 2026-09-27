@@ -85,8 +85,12 @@ export interface PaymentOrderData {
   out_trade_no: string
   status: 'created' | 'pending' | 'paid' | 'expired' | 'failed'
   channel_name: string
+  channel_code: string
+  package_id: number | null
   amount_cent: number
   bonus_cent: number
+  discount_cent: number
+  payable_cent: number
   credited_cent: number
   currency: string
   code_url: string | null
@@ -95,6 +99,17 @@ export interface PaymentOrderData {
   created_at: string
   expires_at: string
   paid_at: string | null
+}
+
+export interface PromoQuote {
+  applied: boolean
+  label: string
+  amount_cent: number
+  bonus_cent: number
+  discount_cent: number
+  payable_cent: number
+  credited_cent: number
+  reason: string
 }
 
 export interface OrderSyncData extends PaymentOrderData {

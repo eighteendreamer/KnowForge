@@ -71,7 +71,7 @@ async def _owned(session: AsyncSession, reference: str, account_id: int) -> Paym
 
 async def _view(session: AsyncSession, order: PaymentOrder) -> dict[str, Any]:
     channel = await session.get(RechargeChannel, order.channel_id)
-    return billing.order_view(order, channel.display_name if channel else "")
+    return billing.order_view(order, channel.display_name if channel else "", channel.code if channel else "")
 
 
 async def _reject_provider(session: AsyncSession, order: PaymentOrder, detail: str) -> None:
@@ -175,14 +175,14 @@ async def list_orders(session: Session, user: PortalAccount, limit: int = Query(
     """最近订单。没付完的单要能回来继续付，否则刷新一下就变成一笔找不回的挂账。"""
     pairs = (
         await session.execute(
-            select(PaymentOrder, RechargeChannel.display_name)
+            select(PaymentOrder, RechargeChannel.display_name, RechargeChannel.code)
             .join(RechargeChannel, RechargeChannel.id == PaymentOrder.channel_id)
             .where(PaymentOrder.account_id == user.id)
             .order_by(PaymentOrder.id.desc())
             .limit(limit)
         )
     ).all()
-    return success({"items": [billing.order_view(row, name) for row, name in pairs]})
+    return success({"items": [billing.order_view(row, name, code) for row, name, code in pairs]})
 
 
 @router.get("/orders/{reference}")
