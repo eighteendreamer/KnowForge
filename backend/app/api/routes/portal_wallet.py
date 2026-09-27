@@ -32,7 +32,12 @@ async def wallet(session: Session, user: PortalAccount):
             "transactions": [billing.transaction_view(row) for row in transactions],
             # 两组都为空说明支付通道还没开通，门户据此显示"请联系平台入账"。
             "packages": [
-                {"id": row.id, "label": row.label, "amount_cent": row.amount_cent, "bonus_cent": row.bonus_cent}
+                {
+                    "id": row.id,
+                    "label": row.label,
+                    "amount_cent": row.amount_cent,
+                    "bonus_cent": row.bonus_cent,
+                }
                 for row in packages
             ],
             # orderable 决定门户要不要给"去支付"按钮：线下转账渠道开着也不能在线下单。

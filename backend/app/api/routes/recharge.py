@@ -320,9 +320,7 @@ async def order_detail(reference: str, session: Session, user: SuperAdmin):
     channel = await session.get(RechargeChannel, order.channel_id)
     account = await session.get(Account, order.account_id)
     events = await session.scalars(
-        select(PaymentOrderEvent)
-        .where(PaymentOrderEvent.order_id == order.id)
-        .order_by(PaymentOrderEvent.id)
+        select(PaymentOrderEvent).where(PaymentOrderEvent.order_id == order.id).order_by(PaymentOrderEvent.id)
     )
     return success(
         {

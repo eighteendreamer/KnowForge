@@ -48,9 +48,7 @@ class PaymentOrder(IdentityMixin, UpdatedMixin, Base):
     __table_args__ = (
         CheckConstraint("amount_cent > 0", name="amount_positive"),
         CheckConstraint("bonus_cent >= 0", name="bonus_non_negative"),
-        CheckConstraint(
-            "status IN ('created', 'pending', 'paid', 'expired', 'failed')", name="status"
-        ),
+        CheckConstraint("status IN ('created', 'pending', 'paid', 'expired', 'failed')", name="status"),
         Index("idx_payment_orders_account_time", "account_id", "created_at"),
         # 关单与对账都按 (status, expires_at) 扫，没有这个索引每轮都要全表扫。
         Index("idx_payment_orders_status_expiry", "status", "expires_at"),

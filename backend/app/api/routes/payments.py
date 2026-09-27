@@ -43,7 +43,9 @@ def out_trade_no() -> str:
 
 def _redirects(settings: Settings, code: str, values: dict[str, str]) -> tuple[str | None, str | None]:
     """回调与跳回地址以渠道里配的用厂商回调地址优先，其次按站点基址拼出来。"""
-    notify = values.get("notify_url") or (f"{settings.site_url}/v1/payments/notify/{code}" if settings.site_url else "")
+    notify = values.get("notify_url") or (
+        f"{settings.site_url}/v1/payments/notify/{code}" if settings.site_url else ""
+    )
     landing = values.get("return_url") or (f"{settings.site_url}/recharge" if settings.site_url else "")
     return notify or None, landing or None
 
@@ -147,9 +149,7 @@ async def create_order(body: OrderInput, request: Request, session: Session, use
 
 
 @router.get("/orders")
-async def list_orders(
-    session: Session, user: PortalAccount, limit: int = Query(20, ge=1, le=50)
-):
+async def list_orders(session: Session, user: PortalAccount, limit: int = Query(20, ge=1, le=50)):
     """最近订单。没付完的单要能回来继续付，否则刷新一下就变成一笔找不回的挂账。"""
     pairs = (
         await session.execute(

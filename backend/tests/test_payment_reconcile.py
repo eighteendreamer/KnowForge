@@ -143,9 +143,7 @@ async def test_a_mismatched_order_is_taken_out_of_the_sweep(context, payment_key
 
 async def test_orders_that_are_not_due_are_left_alone(context, payment_keys, monkeypatch):
     channel_id = await make_channel(context, payment_keys)
-    order_id = await make_order(
-        context, channel_id, "KF-SWEEP-5", expires_at=NOW + timedelta(minutes=20)
-    )
+    order_id = await make_order(context, channel_id, "KF-SWEEP-5", expires_at=NOW + timedelta(minutes=20))
     stub = install(monkeypatch, alipay, lambda *a: trade_status(payment_keys, "KF-SWEEP-5", "TRADE_SUCCESS"))
     assert await run_sweep(context) == {"expired": 0, "credited": 0, "unverified": 0, "held": 0}
     assert stub.calls == []
@@ -173,7 +171,9 @@ async def test_the_sweep_is_bounded_by_the_batch_size(context, payment_keys, mon
 async def _events(context, order_id: int) -> list[PaymentOrderEvent]:
     async with context["sessions"]() as session:
         rows = await session.scalars(
-            select(PaymentOrderEvent).where(PaymentOrderEvent.order_id == order_id).order_by(PaymentOrderEvent.id)
+            select(PaymentOrderEvent)
+            .where(PaymentOrderEvent.order_id == order_id)
+            .order_by(PaymentOrderEvent.id)
         )
         return list(rows)
 
@@ -205,7 +205,9 @@ async def test_admin_can_filter_orders_and_sees_the_account_behind_them(context,
         "/v1/admin/recharge/orders?channel_code=other", headers=context["admin_headers"]
     )
     assert by_channel.json()["data"]["total"] == 0
-    review = await context["client"].get("/v1/admin/recharge/orders?review=true", headers=context["admin_headers"])
+    review = await context["client"].get(
+        "/v1/admin/recharge/orders?review=true", headers=context["admin_headers"]
+    )
     assert review.json()["data"]["items"] == []
     prefix = await context["client"].get(
         "/v1/admin/recharge/orders?q=KF-ADMIN", headers=context["admin_headers"]

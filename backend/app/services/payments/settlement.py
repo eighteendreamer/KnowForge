@@ -73,7 +73,9 @@ async def mark_paid_and_credit(
             MISMATCH,
             {"expected_cent": order.amount_cent, "received_cent": received_cent, "by": source},
         )
-        return Settlement(MISMATCH, order.id, order.status, detail="厂商回执金额与订单不一致，已挂起待人工核对")
+        return Settlement(
+            MISMATCH, order.id, order.status, detail="厂商回执金额与订单不一致，已挂起待人工核对"
+        )
 
     now = datetime.now(UTC)
     # 先锁订单行再判状态：回调重投和查单竞速会在两个事务里同时到达，
@@ -131,11 +133,7 @@ async def mark_paid_and_credit(
         order.id,
         order.status,
         credited_cent=credited,
-        detail=(
-            "已入账"
-            if previous in ("created", "pending")
-            else "订单先前已关闭，按厂商实收补入账并留痕"
-        ),
+        detail=("已入账" if previous in ("created", "pending") else "订单先前已关闭，按厂商实收补入账并留痕"),
     )
 
 

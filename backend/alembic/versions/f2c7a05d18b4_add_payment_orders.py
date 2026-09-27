@@ -44,9 +44,7 @@ def upgrade() -> None:
         sa.CheckConstraint(
             "status IN ('created', 'pending', 'paid', 'expired', 'failed')", name=op.f(f"ck_{ORDERS}_status")
         ),
-        sa.ForeignKeyConstraint(
-            ["account_id"], ["users.id"], name=op.f(f"fk_{ORDERS}_account_id_users")
-        ),
+        sa.ForeignKeyConstraint(["account_id"], ["users.id"], name=op.f(f"fk_{ORDERS}_account_id_users")),
         sa.ForeignKeyConstraint(
             ["channel_id"], ["recharge_channels.id"], name=op.f(f"fk_{ORDERS}_channel_id_recharge_channels")
         ),
@@ -56,9 +54,7 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id", name=op.f(f"pk_{ORDERS}")),
         sa.UniqueConstraint("out_trade_no", name=op.f(f"uq_{ORDERS}_out_trade_no")),
     )
-    op.create_index(
-        "idx_payment_orders_account_time", ORDERS, ["account_id", "created_at"], unique=False
-    )
+    op.create_index("idx_payment_orders_account_time", ORDERS, ["account_id", "created_at"], unique=False)
     op.create_index("idx_payment_orders_status_expiry", ORDERS, ["status", "expires_at"], unique=False)
 
     op.create_table(

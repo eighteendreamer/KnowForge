@@ -15,7 +15,9 @@ NOW = datetime(2026, 9, 27, 12, 0, 0, tzinfo=UTC)
 async def alipay_channel(context):
     """渠道和档位要先存在才能挂订单；context 每个用例回滚外层事务，所以不用手工清表。"""
     async with context["sessions"]() as session:
-        channel = RechargeChannel(code="alipay-cn", display_name="支付宝", channel_type="alipay", enabled=True)
+        channel = RechargeChannel(
+            code="alipay-cn", display_name="支付宝", channel_type="alipay", enabled=True
+        )
         package = RechargePackage(label="标准档", amount_cent=10000, bonus_cent=2000)
         session.add_all([channel, package])
         await session.commit()
@@ -42,7 +44,9 @@ async def seed_order(alipay_channel, context, status: str = "pending", **overrid
 
 async def ledger_of(session, order_id: int) -> list[BalanceTransaction]:
     return list(
-        await session.scalars(select(BalanceTransaction).where(BalanceTransaction.payment_order_id == order_id))
+        await session.scalars(
+            select(BalanceTransaction).where(BalanceTransaction.payment_order_id == order_id)
+        )
     )
 
 

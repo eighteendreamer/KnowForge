@@ -198,7 +198,9 @@ async def test_wechat_native_order_signs_the_body_and_returns_a_code_url(monkeyp
         "amount": {"total": 10000, "currency": "CNY"},
     }
     assert stub.calls[0]["headers"]["Content-Type"] == "application/json"
-    assert stub.calls[0]["headers"]["Authorization"].startswith('WECHATPAY2-SHA256-RSA2048 mchid="1600000000"')
+    assert stub.calls[0]["headers"]["Authorization"].startswith(
+        'WECHATPAY2-SHA256-RSA2048 mchid="1600000000"'
+    )
 
     try:
         await wechat.create_order(
@@ -255,7 +257,9 @@ async def test_wechat_query_order_uses_the_merchant_order_number(monkeypatch, pa
         raise AssertionError("查单失败要抛错，不能当成未支付")
 
 
-def wechat_notify_payload(payment_keys: dict[str, str], trade_state: str = "SUCCESS") -> tuple[bytes, dict[str, str]]:
+def wechat_notify_payload(
+    payment_keys: dict[str, str], trade_state: str = "SUCCESS"
+) -> tuple[bytes, dict[str, str]]:
     plain = json.dumps(
         {
             "out_trade_no": ORDER.out_trade_no,
@@ -314,7 +318,9 @@ def test_wechat_notify_picks_the_key_by_the_serial_prefix(payment_keys):
     public_key_mode = {k: v for k, v in wechat_credentials(payment_keys).items() if k != "platform_cert"}
     verified = wechat.parse_notify(
         public_key_mode,
-        NotifyRequest(headers=dict(headers, **{"wechatpay-serial": "PUB_KEY_ID_0123"}), raw_body=raw, form={}),
+        NotifyRequest(
+            headers=dict(headers, **{"wechatpay-serial": "PUB_KEY_ID_0123"}), raw_body=raw, form={}
+        ),
     )
     assert verified.paid and verified.out_trade_no == ORDER.out_trade_no
     # 同一个前缀下没有公钥就报缺头，而不是退回平台证书。
@@ -322,7 +328,9 @@ def test_wechat_notify_picks_the_key_by_the_serial_prefix(payment_keys):
     try:
         wechat.parse_notify(
             no_material,
-            NotifyRequest(headers=dict(headers, **{"wechatpay-serial": "PUB_KEY_ID_0123"}), raw_body=raw, form={}),
+            NotifyRequest(
+                headers=dict(headers, **{"wechatpay-serial": "PUB_KEY_ID_0123"}), raw_body=raw, form={}
+            ),
         )
     except ProviderError as reason:
         assert "缺少验签所需的头" in str(reason)
@@ -332,7 +340,9 @@ def test_wechat_notify_picks_the_key_by_the_serial_prefix(payment_keys):
     try:
         wechat.parse_notify(
             wechat_credentials(payment_keys),
-            NotifyRequest(headers=dict(headers, **{"wechatpay-serial": "00000000DEADBEEF"}), raw_body=raw, form={}),
+            NotifyRequest(
+                headers=dict(headers, **{"wechatpay-serial": "00000000DEADBEEF"}), raw_body=raw, form={}
+            ),
         )
     except ProviderError as reason:
         assert "重新自检" in str(reason)
@@ -342,7 +352,9 @@ def test_wechat_notify_picks_the_key_by_the_serial_prefix(payment_keys):
 
 async def test_stripe_checkout_orders_send_form_fields_and_bill_in_fen(monkeypatch):
     def handler(method: str, url: str, data: dict[str, str], headers: dict[str, str]) -> StubResponse:
-        return StubResponse(200, '{"id":"cs_test_knowforge","url":"https://checkout.stripe.com/c/cs_test_knowforge"}')
+        return StubResponse(
+            200, '{"id":"cs_test_knowforge","url":"https://checkout.stripe.com/c/cs_test_knowforge"}'
+        )
 
     stub = install(monkeypatch, stripe, handler)
     ticket = await stripe.create_order(stripe_credentials(), ORDER)
@@ -389,16 +401,16 @@ async def test_stripe_query_and_webhook_both_key_off_the_merchant_order_number(m
     credentials = dict(stripe_credentials(), webhook_signing_secret="whsec_test_secret")
     raw = json.dumps({"type": "checkout.session.completed", "data": {"object": session}}).encode()
     timestamp = str(int(time.time()))
-    signature = hmac.new(
-        b"whsec_test_secret", f"{timestamp}.".encode() + raw, hashlib.sha256
-    ).hexdigest()
+    signature = hmac.new(b"whsec_test_secret", f"{timestamp}.".encode() + raw, hashlib.sha256).hexdigest()
     notify = NotifyRequest(
         headers={"stripe-signature": f"t={timestamp},v1={signature}"}, raw_body=raw, form={}
     )
     result = stripe.parse_notify(credentials, notify)
     assert result.out_trade_no == ORDER.out_trade_no and result.paid and result.amount_cent == 10000
     try:
-        stripe.parse_notify(credentials, NotifyRequest(headers={"stripe-signature": "t=1,v1=deadbeef"}, raw_body=raw, form={}))  # type: ignore[arg-type]
+        stripe.parse_notify(
+            credentials, NotifyRequest(headers={"stripe-signature": "t=1,v1=deadbeef"}, raw_body=raw, form={})
+        )  # type: ignore[arg-type]
     except ProviderError as reason:
         assert "签名无效" in str(reason)
     else:  # pragma: no cover

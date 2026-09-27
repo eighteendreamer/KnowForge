@@ -51,7 +51,9 @@ async def close_due_orders(
     channels = {
         row.id: row
         for row in await session.scalars(
-            select(RechargeChannel).where(RechargeChannel.id.in_({order.channel_id for order in orders} or {0}))
+            select(RechargeChannel).where(
+                RechargeChannel.id.in_({order.channel_id for order in orders} or {0})
+            )
         )
     }
     summary = {"expired": 0, "credited": 0, "unverified": 0, "held": 0}

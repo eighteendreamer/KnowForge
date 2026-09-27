@@ -44,7 +44,9 @@ async def ledger_rows(context) -> list[BalanceTransaction]:
 async def event_rows(context, order_id: int) -> list[PaymentOrderEvent]:
     async with context["sessions"]() as session:
         rows = await session.scalars(
-            select(PaymentOrderEvent).where(PaymentOrderEvent.order_id == order_id).order_by(PaymentOrderEvent.id)
+            select(PaymentOrderEvent)
+            .where(PaymentOrderEvent.order_id == order_id)
+            .order_by(PaymentOrderEvent.id)
         )
         return list(rows)
 
@@ -101,7 +103,9 @@ async def test_recent_orders_are_listed_for_their_owner_only(context, payment_ke
     assert elsewhere.json()["data"]["items"] == []
 
 
-async def test_checkout_returns_a_redirect_and_freezes_the_amount_snapshot(context, payment_keys, monkeypatch):
+async def test_checkout_returns_a_redirect_and_freezes_the_amount_snapshot(
+    context, payment_keys, monkeypatch
+):
     """下单成功只是"能去付了"：钱没到，订单必须停在 pending，账本一行都不能有。"""
     response = await checkout(context, payment_keys, monkeypatch)
     assert response.status_code == 200, response.text
@@ -170,7 +174,9 @@ async def test_a_provider_rejection_is_reported_and_the_order_is_closed(context,
         enabled=True,
     )
     assert created.status_code == 200, created.text
-    stub = install(monkeypatch, wechat, lambda *a: StubResponse(400, '{"code":"INVALID_REQUEST","message":"额度不足"}'))
+    stub = install(
+        monkeypatch, wechat, lambda *a: StubResponse(400, '{"code":"INVALID_REQUEST","message":"额度不足"}')
+    )
     response = await context["client"].post(
         "/v1/portal/orders",
         headers=context["customer_headers"],
@@ -198,7 +204,9 @@ async def test_orders_are_invisible_to_anyone_but_their_owner(context, payment_k
         await session.commit()
         token = create_access_token(nosy_account.id, context["settings"], PORTAL_AUDIENCE)
     nosy = {"Authorization": f"Bearer {token}"}
-    assert (await context["client"].get(f"/v1/portal/orders/{reference}", headers=context["customer_headers"])).status_code == 200  # noqa: E501
+    assert (
+        await context["client"].get(f"/v1/portal/orders/{reference}", headers=context["customer_headers"])
+    ).status_code == 200  # noqa: E501
     stolen = await context["client"].get(f"/v1/portal/orders/{reference}", headers=nosy)
     # 单号可枚举时不能泄露"这单确实有，只是不归你"，所以一律 404。
     assert stolen.status_code == 404
@@ -240,7 +248,11 @@ async def test_notify_credits_once_and_a_replay_is_inert(context, payment_keys, 
     assert len(entries) == 1 and entries[0].channel == "alipay"
     assert "100.00元" in entries[0].note and "20.00元" in entries[0].note
     stored = await order_row(context, reference)
-    assert stored.status == "paid" and stored.notify_digest and stored.provider_trade_no == "2026092722001000000099"
+    assert (
+        stored.status == "paid"
+        and stored.notify_digest
+        and stored.provider_trade_no == "2026092722001000000099"
+    )
     assert [item.kind for item in await event_rows(context, stored.id)] == [
         "order_created",
         "order_placed",
@@ -257,7 +269,9 @@ async def test_a_notify_with_a_bad_signature_credits_nothing_and_leaves_no_trace
     forged = urllib.parse.urlencode(
         {"out_trade_no": reference, "trade_status": "TRADE_SUCCESS", "total_amount": "100.00", "sign": "junk"}
     )
-    response = await context["client"].post("/v1/payments/notify/alipay", content=forged, headers=FORM_HEADERS)
+    response = await context["client"].post(
+        "/v1/payments/notify/alipay", content=forged, headers=FORM_HEADERS
+    )
     assert response.status_code == 400
     assert await balance(context) == 0
     stored = await order_row(context, reference)
@@ -266,7 +280,9 @@ async def test_a_notify_with_a_bad_signature_credits_nothing_and_leaves_no_trace
     assert [item.kind for item in await event_rows(context, stored.id)] == ["order_created", "order_placed"]
 
 
-async def test_a_notify_that_is_two_days_late_on_amount_is_held_not_credited(context, payment_keys, monkeypatch):
+async def test_a_notify_that_is_two_days_late_on_amount_is_held_not_credited(
+    context, payment_keys, monkeypatch
+):
     created = await checkout(context, payment_keys, monkeypatch)
     reference = created.json()["data"]["out_trade_no"]
     body = alipay_notify(payment_keys, reference, amount="0.01")
@@ -281,7 +297,9 @@ async def test_a_notify_that_is_two_days_late_on_amount_is_held_not_credited(con
 async def test_a_notify_for_an_unknown_channel_is_refused(context, payment_keys, monkeypatch):
     created = await checkout(context, payment_keys, monkeypatch)
     body = alipay_notify(payment_keys, created.json()["data"]["out_trade_no"])
-    unknown = await context["client"].post("/v1/payments/notify/never-heard", content=body, headers=FORM_HEADERS)
+    unknown = await context["client"].post(
+        "/v1/payments/notify/never-heard", content=body, headers=FORM_HEADERS
+    )
     assert unknown.status_code == 400
     assert await balance(context) == 0
 
@@ -348,7 +366,12 @@ async def test_sync_reports_an_unpaid_order_without_inventing_a_credit(context, 
             200,
             signed_node_response(
                 "alipay_trade_query_response",
-                {"code": "10000", "msg": "Success", "out_trade_no": reference, "trade_status": "WAIT_BUYER_PAY"},
+                {
+                    "code": "10000",
+                    "msg": "Success",
+                    "out_trade_no": reference,
+                    "trade_status": "WAIT_BUYER_PAY",
+                },
                 payment_keys["private_pem"],
             ),
         ),
