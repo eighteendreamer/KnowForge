@@ -8,7 +8,7 @@ import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse, PlainTextResponse, Response
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -144,6 +144,23 @@ async def create_order(body: OrderInput, request: Request, session: Session, use
     )
     await session.commit()
     return success(await _view(session, order))
+
+
+@router.get("/orders")
+async def list_orders(
+    session: Session, user: PortalAccount, limit: int = Query(20, ge=1, le=50)
+):
+    """最近订单。没付完的单要能回来继续付，否则刷新一下就变成一笔找不回的挂账。"""
+    pairs = (
+        await session.execute(
+            select(PaymentOrder, RechargeChannel.display_name)
+            .join(RechargeChannel, RechargeChannel.id == PaymentOrder.channel_id)
+            .where(PaymentOrder.account_id == user.id)
+            .order_by(PaymentOrder.id.desc())
+            .limit(limit)
+        )
+    ).all()
+    return success({"items": [billing.order_view(row, name) for row, name in pairs]})
 
 
 @router.get("/orders/{reference}")

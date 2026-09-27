@@ -82,6 +82,25 @@ def alipay_notify(payment_keys: dict[str, str], out_trade_no: str, amount: str =
     return urllib.parse.urlencode(form)
 
 
+async def test_recent_orders_are_listed_for_their_owner_only(context, payment_keys, monkeypatch):
+    """没付完的单要能回来继续付：刷新页面后找不回订单，等于把用户的钱挂在空中。"""
+    created = await checkout(context, payment_keys, monkeypatch)
+    reference = created.json()["data"]["out_trade_no"]
+    listed = await context["client"].get("/v1/portal/orders", headers=context["customer_headers"])
+    assert listed.status_code == 200
+    items = listed.json()["data"]["items"]
+    assert [row["out_trade_no"] for row in items] == [reference]
+    assert items[0]["channel_name"] == "支付宝" and items[0]["status"] == "pending"
+
+    async with context["sessions"]() as session:
+        nosy_account = Account(username="nosy2", password_hash=PASSWORD_HASH, role="end_user")
+        session.add(nosy_account)
+        await session.commit()
+        token = create_access_token(nosy_account.id, context["settings"], PORTAL_AUDIENCE)
+    elsewhere = await context["client"].get("/v1/portal/orders", headers={"Authorization": f"Bearer {token}"})
+    assert elsewhere.json()["data"]["items"] == []
+
+
 async def test_checkout_returns_a_redirect_and_freezes_the_amount_snapshot(context, payment_keys, monkeypatch):
     """下单成功只是"能去付了"：钱没到，订单必须停在 pending，账本一行都不能有。"""
     response = await checkout(context, payment_keys, monkeypatch)

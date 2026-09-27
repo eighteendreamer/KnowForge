@@ -60,11 +60,46 @@ export interface TransactionRow {
   created_at: string
 }
 
+export interface RechargePackageOption {
+  id: number
+  label: string
+  amount_cent: number
+  bonus_cent: number
+}
+
+export interface RechargeChannelOption {
+  code: string
+  display_name: string
+  channel_type: string
+  orderable: boolean
+}
+
 export interface WalletData {
   balance_cent: number
   transactions: TransactionRow[]
-  packages: { label: string; amount_cent: number; bonus_cent: number }[]
-  channels: { code: string; display_name: string }[]
+  packages: RechargePackageOption[]
+  channels: RechargeChannelOption[]
+}
+
+export interface PaymentOrderData {
+  out_trade_no: string
+  status: 'created' | 'pending' | 'paid' | 'expired' | 'failed'
+  channel_name: string
+  amount_cent: number
+  bonus_cent: number
+  credited_cent: number
+  currency: string
+  code_url: string | null
+  redirect_url: string | null
+  provider_trade_no: string | null
+  created_at: string
+  expires_at: string
+  paid_at: string | null
+}
+
+export interface OrderSyncData extends PaymentOrderData {
+  sync: { ok: boolean; detail: string }
+  balance_cent?: number
 }
 
 export interface Page<T> {

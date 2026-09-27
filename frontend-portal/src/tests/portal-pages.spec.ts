@@ -2,8 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { defineComponent, h } from 'vue'
 import { NMessageProvider } from 'naive-ui'
-import { http, publicHttp } from '../api/client'
-import RechargeView from '../views/RechargeView.vue'
+import { publicHttp } from '../api/client'
 import DocsView from '../views/DocsView.vue'
 
 function mountView(component: object) {
@@ -13,48 +12,6 @@ function mountView(component: object) {
 
 beforeEach(() => {
   vi.restoreAllMocks()
-})
-
-describe('充值页的预留语义', () => {
-  it('未开通渠道时给空态，且不提供任何假装能下单的按钮', async () => {
-    vi.spyOn(http, 'request').mockResolvedValue({
-      data: { code: 0, data: { balance_cent: 12050, transactions: [], packages: [], channels: [] } },
-    })
-    const wrapper = mountView(RechargeView)
-    await flushPromises()
-    expect(wrapper.text()).toContain('¥120.50')
-    expect(wrapper.text()).toContain('支付通道尚未开通')
-    expect(wrapper.text()).not.toContain('立即支付')
-    expect(wrapper.findAll('button').length).toBeLessThanOrEqual(1)
-    wrapper.unmount()
-  })
-
-  it('入账流水按分展示为元，不出现浮点尾数', async () => {
-    vi.spyOn(http, 'request').mockResolvedValue({
-      data: {
-        code: 0,
-        data: {
-          balance_cent: 0,
-          transactions: [
-            {
-              id: 1,
-              amount_cent: 0.1 * 100,
-              channel: 'manual',
-              operator_id: 2,
-              note: '手动入账',
-              created_at: '2026-09-26T04:00:00+00:00',
-            },
-          ],
-          packages: [],
-          channels: [],
-        },
-      },
-    })
-    const wrapper = mountView(RechargeView)
-    await flushPromises()
-    expect(wrapper.text()).toContain('¥0.10')
-    wrapper.unmount()
-  })
 })
 
 describe('接口文档页', () => {

@@ -534,6 +534,113 @@ html.hide-scrollbar::-webkit-scrollbar {
   color: #d03050;
   font-size: 12px;
 }
+/* 在线充值：金额与支付方式都是行式清单，选中态用左侧色条标出，不再叠一层盒子 */
+.checkout {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 40px;
+  margin-top: 16px;
+}
+.checkout-group h3 {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #767c82;
+}
+.option-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  padding: 13px 12px 13px 14px;
+  border: 0;
+  border-bottom: 1px solid #efeff5;
+  border-left: 2px solid transparent;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.option-row:hover {
+  background: #fafafc;
+}
+.option-row--active {
+  border-left-color: #18a058;
+  background: #f3faf5;
+}
+.option-main {
+  font-size: 15px;
+  font-weight: 600;
+}
+.option-tag {
+  font-size: 12px;
+  color: #18a058;
+}
+.option-tail {
+  margin-left: auto;
+  font-size: 12px;
+  color: #767c82;
+}
+.checkout-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 20px;
+}
+.checkout-actions .payable {
+  font-size: 15px;
+  font-weight: 600;
+}
+.section-empty {
+  margin-top: 12px;
+}
+.pay-dialog {
+  width: min(680px, calc(100vw - 48px));
+}
+.pay-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 28px;
+  align-items: start;
+}
+.pay-qr img {
+  display: block;
+  border: 1px solid #efeff5;
+}
+.pay-qr p {
+  margin-top: 8px;
+  font-size: 12px;
+}
+.pay-redirect {
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+}
+.pay-facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 16px;
+  margin: 0;
+}
+.pay-facts dt {
+  font-size: 12px;
+  color: #767c82;
+}
+.pay-facts dd {
+  margin: 0;
+  font-size: 13px;
+}
+.pay-note {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid #efeff5;
+  font-size: 13px;
+  color: #767c82;
+}
+.pay-note--paid {
+  color: #18a058;
+}
 @media (max-width: 1100px) {
   .docs-layout {
     grid-template-columns: 1fr;
@@ -590,6 +697,16 @@ html.hide-scrollbar::-webkit-scrollbar {
   }
   .metric-strip {
     grid-template-columns: 1fr;
+  }
+  .checkout,
+  .pay-grid {
+    grid-template-columns: 1fr;
+  }
+  .checkout {
+    gap: 20px 0;
+  }
+  .checkout-actions {
+    flex-wrap: wrap;
   }
   .toolbar .n-input,
   .toolbar .n-select {
