@@ -121,6 +121,11 @@ function optionShort(option: string): string {
   if (option.includes('openapi.alipay.com')) return '正式网关（openapi.alipay.com）'
   return option
 }
+// 浏览器密码管理器会按"文本框=用户名、password框=密码"的启发式往凭据表单里灌登录账号，
+// autocomplete="off" 对密码框无效，所以密钥框用 new-password，并给每个框一个与账号无关的 name。
+function inputName(key: string): string {
+  return `kf-credential-${key.replace(/_/g, '-')}`
+}
 
 function openCreate() {
   createForm.channel_type = typeOptions.value[0]?.value ?? 'custom'
@@ -229,10 +234,15 @@ function hintOf(field: CredentialFieldSpec): string | undefined {
   return parts.length ? parts.join(' · ') : undefined
 }
 // 必填的厂商身份/密钥放前面，回调地址与可选证书放后面，中间一条分隔线，
-// 这样第一屏只看到真正必须填的那几项。
-const optionalStart = computed(() =>
-  configFields.value.findIndex((field) => !field.required && field.editable)
-)
+// 这样第一屏只看到真正必须填的那几项。分隔线取"最后一个必填项之后"：
+// 必填项在规格里并不连续（网关地址可选、应用私钥必填），按第一个可选项切会把必填项漏到下面。
+const optionalStart = computed(() => {
+  let lastRequired = -1
+  configFields.value.forEach((field, index) => {
+    if (field.required) lastRequired = index
+  })
+  return lastRequired >= 0 && lastRequired + 1 < configFields.value.length ? lastRequired + 1 : -1
+})
 const stillMissing = computed(() => {
   const row = configTarget.value
   if (!row) return ''
@@ -486,8 +496,10 @@ onMounted(load)
         {{ configTarget?.code }} · {{ typeLabels[configTarget?.channel_type ?? ''] ?? configTarget?.channel_type }}
       </span>
     </template>
-    <NForm label-placement="left" label-align="left" label-width="150">
-      <NFormItem label="显示名称"><NInput v-model:value="configForm.display_name" :maxlength="100" /></NFormItem>
+    <NForm label-placement="left" label-align="left" label-width="150" autocomplete="off">
+      <NFormItem label="显示名称">
+        <NInput v-model:value="configForm.display_name" :maxlength="100" :input-props="{ autocomplete: 'off', name: 'kf-channel-name' }" />
+      </NFormItem>
       <template v-for="(field, index) in configFields" :key="field.key">
         <NDivider v-if="index === optionalStart" class="form-divider" />
         <NFormItem :label="field.label" :required="field.required" :feedback="hintOf(field)">
@@ -503,7 +515,7 @@ onMounted(load)
             :value="drafts[field.key]?.value ?? ''"
             type="textarea"
             :autosize="{ minRows: 3, maxRows: 10 }"
-            :input-props="{ autocomplete: 'off', class: 'pem-input' }"
+            :input-props="{ autocomplete: 'off', name: inputName(field.key), class: 'pem-input' }"
             :maxlength="field.max_length"
             :disabled="!field.editable"
             :placeholder="storedOf(field.key) ? '留空即保持不变，粘贴新值即轮换' : '粘贴厂商给的内容，裸 base64 或 PEM 都行'"
@@ -514,7 +526,7 @@ onMounted(load)
             :value="drafts[field.key]?.value ?? ''"
             :type="field.secret ? 'password' : 'text'"
             :show-password-on="field.secret ? 'click' : undefined"
-            :input-props="{ autocomplete: 'off' }"
+            :input-props="{ autocomplete: field.secret ? 'new-password' : 'off', name: inputName(field.key) }"
             :maxlength="field.max_length"
             :disabled="!field.editable"
             :placeholder="storedOf(field.key) ? '留空即保持不变' : ''"

@@ -32,6 +32,10 @@ const SPEC: ChannelTypeSpec = {
       key: 'app_private_key', label: '应用私钥', help: '裸 base64 与 PEM 两种形态都能粘。', secret: true, required: true,
       editable: true, default: null, options: [], max_length: 8000, multiline: true,
     },
+    {
+      key: 'content_encrypt_key', label: '内容加密 AES 密钥', help: '', secret: true, required: false, editable: true,
+      default: null, options: [], max_length: 64, multiline: false,
+    },
   ],
 }
 
@@ -238,6 +242,16 @@ it('必填只标真正缺了就打不通厂商的项，有默认值的字段预�
   // 网关地址虽然没存过，但默认值已选中，不该以"必填"的姿态要求人操作。
   expect(required).not.toContain('网关地址')
   expect(wrapper.findAll('.form-divider')).toHaveLength(1)
+})
+
+it('密钥输入框不能被浏览器密码管理器自动填（admin/admin123 那种串台）', async () => {
+  wrapper = await openConfigDialog()
+  const privateInput = textarea(wrapper)
+  expect(privateInput.props('inputProps')).toMatchObject({ autocomplete: 'off', name: 'kf-credential-app-private-key' })
+  const secretText = wrapper
+    .findAllComponents(NInput)
+    .find((input) => input.props('type') === 'password' && input.props('inputProps')?.name === 'kf-credential-content-encrypt-key')!
+  expect(secretText.props('inputProps')).toMatchObject({ autocomplete: 'new-password' })
 })
 
 it('新增渠道只收类型、代码与显示名称，凭据留到完善配置里填', async () => {
