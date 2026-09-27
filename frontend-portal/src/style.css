@@ -587,41 +587,109 @@ html.hide-scrollbar::-webkit-scrollbar {
 }
 .checkout-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.5fr) minmax(280px, 1fr);
-  gap: 40px;
+  grid-template-columns: minmax(0, 1.15fr) minmax(300px, 0.85fr);
+  gap: 44px;
   align-items: start;
 }
-.checkout-main .block {
-  padding: 22px 0;
-  border-bottom: 1px solid #efeff5;
+/* 结算页照收银台的排法：左栏看单、右栏付款，中间一条发丝线，不给任何一栏套盒子。 */
+.checkout-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 26px;
 }
-.checkout-main .block:first-child {
-  padding-top: 0;
+.checkout-back {
+  color: #767c82;
 }
-.checkout-main h2,
-.checkout-side h2 {
-  margin: 0 0 4px;
+.checkout-mark {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid #e4e4e8;
+  border-radius: 50%;
+}
+.checkout-merchant {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.3;
+}
+.checkout-merchant strong {
   font-size: 15px;
-  font-weight: 600;
 }
-.block-note {
-  margin-top: 10px;
+.checkout-merchant span {
+  font-size: 12px;
+}
+.checkout-title {
+  margin: 0 0 4px;
+  font-size: 20px;
+  letter-spacing: -0.2px;
+}
+.checkout-lede {
+  margin: 0 0 20px;
   font-size: 13px;
 }
-.order-line {
+.line-items {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.line-items li {
   display: flex;
-  align-items: flex-end;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
-  margin-top: 12px;
+  padding: 14px 0;
+  border-top: 1px solid #efeff5;
 }
-.order-line > div:first-child {
+.line-name {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  font-size: 14px;
 }
-.order-line strong {
-  font-size: 16px;
+.line-name small {
+  font-size: 12px;
+}
+.line-value {
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+.line-value.minus {
+  color: #18a058;
+}
+.totals {
+  margin: 0;
+}
+.total-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 0;
+}
+.total-row--promo {
+  padding: 2px 0 12px;
+}
+.total-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #767c82;
+  font-size: 13px;
+}
+.total-value {
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+.total-row--grand {
+  padding-top: 14px;
+  border-top: 1px solid #efeff5;
+}
+.total-row--grand .total-label {
+  color: #1f1f23;
+  font-size: 15px;
+  font-weight: 600;
 }
 .order-amount {
   display: flex;
@@ -629,8 +697,14 @@ html.hide-scrollbar::-webkit-scrollbar {
   gap: 10px;
 }
 .order-amount strong {
-  font-size: 26px;
+  color: #1f1f23;
+  font-size: 22px;
+  font-weight: 600;
   letter-spacing: -0.4px;
+}
+.total-row--credited .total-value {
+  color: #18a058;
+  font-weight: 600;
 }
 .strike {
   text-decoration: line-through;
@@ -639,18 +713,45 @@ html.hide-scrollbar::-webkit-scrollbar {
 .promo-row {
   display: flex;
   gap: 10px;
-  margin-top: 12px;
+  margin-bottom: 8px;
 }
-.promo-ok,
 .promo-bad {
   margin-top: 10px;
   font-size: 13px;
+  color: #d03050;
 }
-.promo-ok {
+.pill {
+  padding: 5px 12px;
+  border: 1px solid #e4e4e8;
+  border-radius: 999px;
+  background: #fff;
+  color: #1f1f23;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.pill:hover:not(:disabled) {
+  border-color: #18a058;
   color: #18a058;
 }
-.promo-bad {
-  color: #d03050;
+.pill:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.pill--applied {
+  border-style: dashed;
+  color: #18a058;
+  cursor: default;
+}
+.link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #767c82;
+  font: inherit;
+  font-size: 12px;
+  text-decoration: underline;
+  cursor: pointer;
 }
 .checkout-side {
   position: sticky;
@@ -659,7 +760,44 @@ html.hide-scrollbar::-webkit-scrollbar {
   border-left: 1px solid #efeff5;
 }
 .checkout-side h2 {
-  margin-bottom: 12px;
+  margin: 0 0 8px;
+  font-size: 16px;
+}
+.pay-methods {
+  margin-bottom: 18px;
+  border-top: 1px solid #efeff5;
+}
+.pay-method {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 14px 2px;
+  border: 0;
+  border-bottom: 1px solid #efeff5;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.pay-method-dot {
+  flex: none;
+}
+.pay-method-name {
+  font-size: 14px;
+}
+.pay-method--active .pay-method-name {
+  color: #18a058;
+  font-weight: 600;
+}
+.pay-method-note {
+  margin-left: auto;
+  color: #767c82;
+  font-size: 12px;
+}
+.pay-submit {
+  margin-top: 2px;
 }
 .facts {
   display: grid;
@@ -674,13 +812,6 @@ html.hide-scrollbar::-webkit-scrollbar {
 .facts dd {
   margin: 0;
   text-align: right;
-}
-.facts dd.strong {
-  font-size: 15px;
-  font-weight: 600;
-}
-.facts dd.minus {
-  color: #18a058;
 }
 .facts code {
   font-size: 12px;
@@ -787,6 +918,12 @@ html.hide-scrollbar::-webkit-scrollbar {
   }
   .promo-row {
     flex-wrap: wrap;
+  }
+  .pay-method {
+    flex-wrap: wrap;
+  }
+  .pay-method-note {
+    margin-left: 28px;
   }
   .toolbar .n-input,
   .toolbar .n-select {

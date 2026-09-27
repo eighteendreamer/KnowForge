@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { NAlert, NButton, NInput, NTag, useMessage } from 'naive-ui'
+import { NAlert, NButton, NIcon, NInput, useMessage } from 'naive-ui'
+import { ArrowBackOutline, BookOutline, CheckmarkCircleOutline, EllipseOutline } from '@vicons/ionicons5'
 import QRCode from 'qrcode'
 import { useRoute, useRouter } from 'vue-router'
 import { api, errorMessage, formatCent } from '../api/client'
 import { useAction } from '../api/feedback'
 import type { OrderSyncData, PaymentOrderData, PromoQuote, WalletData } from '../api/types'
-import PageHeader from '../components/PageHeader.vue'
 
 const SYNC_INTERVAL_MS = 10_000
 // 渠道类型是内部术语，给用户看的是"这笔钱怎么付"。
@@ -25,6 +25,7 @@ const wallet = ref<WalletData | null>(null)
 const packageId = ref(Number(route.query.package ?? 0))
 const channelCode = ref(String(route.query.channel ?? ''))
 const promoInput = ref('')
+const promoOpen = ref(false)
 const quote = ref<PromoQuote | null>(null)
 const promoBusy = ref(false)
 const order = ref<PaymentOrderData | null>(null)
@@ -48,22 +49,27 @@ const countdown = computed(() => {
   const total = Math.max(0, Math.floor(remainingMs.value / 1000))
   return `${Math.floor(total / 60)} 分 ${String(total % 60).padStart(2, '0')} 秒`
 })
-const priced = computed(() => quote.value)
 const payableCent = computed(() =>
-  order.value ? order.value.payable_cent : (priced.value?.payable_cent ?? chosen.value?.amount_cent ?? 0)
+  order.value ? order.value.payable_cent : (quote.value?.payable_cent ?? chosen.value?.amount_cent ?? 0)
 )
 const creditedCent = computed(() =>
   order.value
     ? order.value.amount_cent + order.value.bonus_cent
-    : priced.value
-      ? priced.value.credited_cent
+    : quote.value
+      ? quote.value.credited_cent
       : (chosen.value?.amount_cent ?? 0) + (chosen.value?.bonus_cent ?? 0)
 )
+const bonusCent = computed(() =>
+  order.value ? order.value.bonus_cent : (quote.value?.bonus_cent ?? chosen.value?.bonus_cent ?? 0)
+)
 const discountCent = computed(() =>
-  order.value ? order.value.discount_cent : (priced.value?.discount_cent ?? 0)
+  order.value ? order.value.discount_cent : (quote.value?.discount_cent ?? 0)
 )
 const listPrice = computed(() =>
   order.value ? order.value.amount_cent : (chosen.value?.amount_cent ?? 0)
+)
+const promoRejected = computed(() =>
+  quote.value && !quote.value.applied ? quote.value.reason || '促销码不可用' : ''
 )
 const canPay = computed(() => Boolean(chosen.value && channel.value))
 
@@ -122,7 +128,9 @@ async function applyPromo() {
       method: 'POST',
       data: { package_id: chosen.value.id, promo_code: promoInput.value.trim() },
     })
-    if (!quote.value.applied && promoInput.value.trim()) message.warning(quote.value.reason || '促销码不可用')
+    // 用上了就把它折成一行金额，输入框收回原处，结算页保持"一行项目一个数"。
+    if (quote.value.applied) promoOpen.value = false
+    else if (promoInput.value.trim()) message.warning(quote.value.reason || '促销码不可用')
   } catch (error) {
     quote.value = null
     message.error(errorMessage(error))
@@ -134,12 +142,11 @@ async function applyPromo() {
 function clearPromo() {
   promoInput.value = ''
   quote.value = null
+  promoOpen.value = false
 }
 
 function pickChannel(code: string) {
   channelCode.value = code
-  // 换了渠道就等于换一单去付：旧单还挂在厂商那边，扫码时不能同时认两张码。
-  if (order.value && order.value.status !== 'paid') backToForm('已切换支付方式，请重新下单')
 }
 
 function backToForm(note = '') {
@@ -161,12 +168,7 @@ async function pay() {
         promo_code: quote.value?.applied ? promoInput.value.trim() : '',
       },
     })
-    order.value = created
-    statusNote.value = '订单已生成，请扫码完成付款'
-    qrImage.value = created.code_url
-      ? await QRCode.toDataURL(created.code_url, { margin: 1, width: 224 })
-      : ''
-    startPolling()
+    await showOrder(created)
   })
 }
 
@@ -200,124 +202,156 @@ function done() {
 </script>
 
 <template>
-  <PageHeader title="确认订单" description="核对金额、用促销码、选支付方式，然后扫码付款。">
-    <NButton size="small" quaternary @click="done">返回充值页</NButton>
-  </PageHeader>
+  <div class="checkout">
+    <header class="checkout-brand">
+      <NButton text class="checkout-back" aria-label="返回充值页" @click="done">
+        <template #icon>
+          <NIcon :size="18"><ArrowBackOutline /></NIcon>
+        </template>
+      </NButton>
+      <span class="checkout-mark">
+        <NIcon :size="22" color="#18a058"><BookOutline /></NIcon>
+      </span>
+      <div class="checkout-merchant">
+        <strong>KnowForge</strong>
+        <span class="muted">技术知识检索开放平台</span>
+      </div>
+    </header>
 
-  <template v-if="wallet && (chosen || order)">
-    <div class="checkout-grid">
-      <div class="checkout-main">
-        <section class="block">
-          <h2>支付订单</h2>
-          <div class="order-line">
-            <div>
-              <strong>{{ chosen?.label ?? '已生成的订单' }}</strong>
-              <span class="muted">充值 {{ formatCent(listPrice) }}</span>
+    <template v-if="wallet && (chosen || order)">
+      <div class="checkout-grid">
+        <section class="checkout-main">
+          <h2 class="checkout-title">向 KnowForge 支付</h2>
+          <p class="muted checkout-lede">核对金额与支付方式，扫码付款后额度即时到账。</p>
+
+          <ul class="line-items">
+            <li>
+              <span class="line-name">{{ chosen?.label ?? '已生成的订单' }}<small class="muted">在线充值</small></span>
+              <span class="line-value">{{ formatCent(listPrice) }}</span>
+            </li>
+            <li v-if="bonusCent">
+              <span class="line-name">本档赠送<small class="muted">与充值一并到账</small></span>
+              <span class="line-value">{{ formatCent(bonusCent) }}</span>
+            </li>
+            <li v-if="discountCent">
+              <span class="line-name">促销码<small v-if="quote?.label" class="muted">{{ quote.label }}</small></span>
+              <span class="line-value minus">−{{ formatCent(discountCent) }}</span>
+            </li>
+          </ul>
+
+          <div class="totals">
+            <div class="total-row">
+              <span class="total-label">小计</span>
+              <span class="total-value">{{ formatCent(listPrice) }}</span>
             </div>
-            <div class="order-amount">
-              <strong>{{ formatCent(payableCent) }}</strong>
-              <span v-if="discountCent" class="strike muted">{{ formatCent(listPrice) }}</span>
+
+            <div v-if="!paying && !promoOpen" class="total-row total-row--promo">
+              <button
+                v-if="!discountCent"
+                type="button"
+                class="pill"
+                :disabled="!chosen"
+                @click="promoOpen = true"
+              >
+                添加促销码
+              </button>
+              <span v-else class="total-label">
+                <span class="pill pill--applied">促销码已应用</span>
+                <button type="button" class="link" @click="clearPromo">移除</button>
+              </span>
+            </div>
+
+            <form v-if="promoOpen && !paying && !discountCent" class="promo-row" @submit.prevent="applyPromo">
+              <NInput
+                v-model:value="promoInput"
+                :maxlength="32"
+                placeholder="输入促销码"
+                @update:value="quote = null"
+              />
+              <NButton type="primary" :loading="promoBusy" :disabled="!promoInput.trim()" @click="applyPromo">
+                应用
+              </NButton>
+              <NButton text @click="clearPromo">取消</NButton>
+            </form>
+
+            <div class="total-row total-row--grand">
+              <span class="total-label">应付合计</span>
+              <span class="total-value order-amount">
+                <span v-if="discountCent" class="strike muted">{{ formatCent(listPrice) }}</span>
+                <strong>{{ formatCent(payableCent) }}</strong>
+              </span>
+            </div>
+            <div class="total-row total-row--credited">
+              <span class="total-label">支付后到账</span>
+              <span class="total-value">{{ formatCent(creditedCent) }}</span>
             </div>
           </div>
-          <p class="muted block-note">
-            本档赠送 {{ formatCent(order ? order.bonus_cent : (chosen?.bonus_cent ?? 0)) }}，实付
-            {{ formatCent(payableCent) }}，到账 {{ formatCent(creditedCent) }}。
-          </p>
+
+          <p v-if="promoRejected" class="promo-bad">{{ promoRejected }}</p>
         </section>
 
-        <section class="block">
-          <h2>促销码</h2>
-          <div class="promo-row">
-            <NInput
-              v-model:value="promoInput"
-              :maxlength="32"
-              placeholder="输入促销码，没有可不填"
-              :disabled="paying"
-              @update:value="quote = null"
-            />
-            <NButton :loading="promoBusy" :disabled="paying || !promoInput.trim() || !chosen" @click="applyPromo">
-              应用
-            </NButton>
-            <NButton v-if="quote" quaternary :disabled="paying" @click="clearPromo">清除</NButton>
-          </div>
-          <p v-if="quote?.applied" class="promo-ok">
-            <NTag size="small" :bordered="false" type="success">{{ quote.label || '促销码' }}</NTag>
-            已减 {{ formatCent(quote.discount_cent) }}，实付 {{ formatCent(quote.payable_cent) }}，到账仍为
-            {{ formatCent(quote.credited_cent) }}
-          </p>
-          <p v-else-if="quote && promoInput.trim()" class="promo-bad">{{ quote.reason || '促销码不可用' }}</p>
-        </section>
+        <aside class="checkout-side">
+          <h2>{{ paying ? '请扫码付款' : '选择支付方式' }}</h2>
 
-        <section class="block">
-          <h2>支付方式</h2>
-          <div class="tile-grid">
+          <div v-if="!paying" class="pay-methods">
             <button
               v-for="row in payableChannels"
               :key="row.code"
               type="button"
-              class="tile"
-              :class="{ 'tile--active': row.code === channelCode }"
-              :disabled="Boolean(order && order.status === 'paid')"
+              class="pay-method"
+              :class="{ 'pay-method--active': row.code === channelCode }"
               @click="pickChannel(row.code)"
             >
-              <span class="tile-name">{{ row.display_name }}</span>
-              <span class="tile-note">{{ PAY_STYLE[row.channel_type] ?? '在线支付' }}</span>
+              <NIcon class="pay-method-dot" :size="18" :color="row.code === channelCode ? '#18a058' : '#c9c9ce'">
+                <CheckmarkCircleOutline v-if="row.code === channelCode" />
+                <EllipseOutline v-else />
+              </NIcon>
+              <span class="pay-method-name">{{ row.display_name }}</span>
+              <span class="pay-method-note">{{ PAY_STYLE[row.channel_type] ?? '在线支付' }}</span>
             </button>
           </div>
-          <p v-if="statusNote && !paying" class="promo-bad">{{ statusNote }}</p>
-        </section>
+
+          <template v-if="!paying">
+            <p v-if="statusNote" class="promo-bad">{{ statusNote }}</p>
+            <NButton
+              class="pay-submit"
+              type="primary"
+              size="large"
+              block
+              :loading="busy"
+              :disabled="!canPay"
+              @click="pay"
+            >
+              扫码支付 {{ formatCent(payableCent) }}
+            </NButton>
+            <p class="muted side-note">点击后生成订单与二维码，30 分钟内未付自动关闭。</p>
+          </template>
+
+          <template v-else>
+            <div class="qr-box">
+              <img v-if="qrImage" :src="qrImage" alt="支付二维码" width="224" height="224">
+              <p v-else class="muted">该渠道不提供二维码，请按页面提示完成付款。</p>
+              <p class="qr-caption">{{ channel?.display_name ?? order?.channel_name }}扫码支付</p>
+            </div>
+            <dl class="facts">
+              <dt>商户单号</dt>
+              <dd><code>{{ order?.out_trade_no }}</code></dd>
+              <dt>支付倒计时</dt>
+              <dd>{{ remainingMs > 0 ? countdown : '订单已超时关闭' }}</dd>
+            </dl>
+            <p class="status-note" :class="{ 'status-note--paid': paid }">
+              {{ statusNote || '等待扫码付款，系统会自动确认结果。' }}
+            </p>
+            <NButton block :loading="syncing" :disabled="paid" @click="sync(false)">我已完成支付</NButton>
+            <NButton block quaternary :disabled="paid" @click="backToForm('这张单在超时前仍然有效，换方式后请勿扫描旧二维码')">
+              更换支付方式
+            </NButton>
+            <NButton v-if="paid" block type="primary" @click="done">回充值页看余额</NButton>
+          </template>
+        </aside>
       </div>
+    </template>
 
-      <aside class="checkout-side">
-        <h2>金额</h2>
-        <dl class="facts">
-          <dt>档位</dt>
-          <dd>{{ formatCent(listPrice) }}</dd>
-          <dt>赠送</dt>
-          <dd>{{ formatCent(order ? order.bonus_cent : (chosen?.bonus_cent ?? 0)) }}</dd>
-          <dt v-if="discountCent">促销抵扣</dt>
-          <dd v-if="discountCent" class="minus">−{{ formatCent(discountCent) }}</dd>
-          <dt>实付</dt>
-          <dd class="strong">{{ formatCent(payableCent) }}</dd>
-          <dt>支付后到账</dt>
-          <dd class="strong">{{ formatCent(creditedCent) }}</dd>
-        </dl>
-        <template v-if="!paying">
-          <NButton
-            type="primary"
-            size="large"
-            block
-            :loading="busy"
-            :disabled="!canPay"
-            style="margin-top: 18px"
-            @click="pay"
-          >
-            扫码支付 {{ formatCent(payableCent) }}
-          </NButton>
-          <p class="muted side-note">点「扫码支付」生成订单与二维码，30 分钟内未付自动关闭。</p>
-        </template>
-        <template v-else>
-          <div class="qr-box">
-            <img v-if="qrImage" :src="qrImage" alt="支付二维码" width="224" height="224">
-            <p v-else class="muted">该渠道不提供二维码，请按页面提示完成付款。</p>
-            <p class="qr-caption">{{ channel?.display_name }}扫码支付</p>
-          </div>
-          <dl class="facts">
-            <dt>商户单号</dt>
-            <dd><code>{{ order?.out_trade_no }}</code></dd>
-            <dt>支付倒计时</dt>
-            <dd>{{ remainingMs > 0 ? countdown : '订单已超时关闭' }}</dd>
-          </dl>
-          <p class="status-note" :class="{ 'status-note--paid': paid }">
-            {{ statusNote || '等待扫码付款，系统会自动确认结果。' }}
-          </p>
-          <NButton block :loading="syncing" :disabled="paid" @click="sync(false)">我已完成支付</NButton>
-          <NButton block quaternary :disabled="paid" @click="backToForm('')">更换支付方式</NButton>
-          <NButton v-if="paid" block type="primary" @click="done">回充值页看余额</NButton>
-        </template>
-      </aside>
-    </div>
-  </template>
-
-  <NAlert v-else-if="wallet" type="warning">没有可结算的档位，请回充值页重新选择。</NAlert>
+    <NAlert v-else-if="wallet" type="warning">没有可结算的档位，请回充值页重新选择。</NAlert>
+  </div>
 </template>

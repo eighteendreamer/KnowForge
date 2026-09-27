@@ -152,22 +152,22 @@ describe('充值页的档位选择', () => {
 })
 
 describe('结算页', () => {
-  it('展示订单金额与可支付方式，线下转账渠道不进来', async () => {
+  it('左栏列订单金额，右栏列可支付方式，线下转账渠道不进来', async () => {
     queryParams = { package: '11' }
     mockRoutes({ 'GET /wallet': WALLET, 'GET /orders/KF20260927A0001': PENDING })
     const wrapper = mountView(CheckoutView)
     await flushPromises()
-    expect(wrapper.text()).toContain('标准档')
-    expect(wrapper.text()).toContain('实付¥100.00')
-    expect(wrapper.text()).toContain('支付后到账¥120.00')
-    const methods = wrapper.findAll('.checkout-main .tile')
+    expect(wrapper.find('.checkout-main').text()).toContain('标准档')
+    expect(wrapper.find('.order-amount').text()).toContain('¥100.00')
+    expect(wrapper.find('.total-row--credited').text()).toContain('支付后到账¥120.00')
+    const methods = wrapper.findAll('.checkout-side .pay-method')
     expect(methods.map((node) => node.text())).toEqual(['支付宝网页支付用支付宝扫码', '微信Native扫码用微信扫码'])
     expect(wrapper.text()).not.toContain('对公转账')
     expect(wrapper.find('.qr-box').exists()).toBe(false)
     wrapper.unmount()
   })
 
-  it('促销码可用时改实付不改到账，不可用时把厂商侧原因显示出来', async () => {
+  it('促销码收在「添加促销码」里，可用时改实付不改到账，不可用时把原因显示出来', async () => {
     queryParams = { package: '11' }
     const rejected = { ...QUOTE, applied: false, discount_cent: 0, payable_cent: 10000, reason: '促销码名额已用完' }
     vi.spyOn(http, 'request').mockImplementation(async (config) => {
@@ -181,16 +181,22 @@ describe('结算页', () => {
     })
     const wrapper = mountView(CheckoutView)
     await flushPromises()
+    // 未点开之前不给一排常驻输入框：促销码是一个可选行，点开才成为表单。
+    expect(wrapper.find('.promo-row').exists()).toBe(false)
+    await wrapper.find('.total-row--promo .pill').trigger('click')
     const input = wrapper.find('input')
     await input.setValue('KFNEW100')
     await wrapper.findAll('.promo-row button')[0].trigger('click')
     await flushPromises()
-    expect(wrapper.find('.promo-ok').text()).toContain('已减 ¥10.00')
+    expect(wrapper.find('.line-value.minus').text()).toBe('−¥10.00')
+    expect(wrapper.find('.total-row--promo').text()).toContain('促销码已应用')
     expect(wrapper.find('.order-amount').text()).toContain('¥90.00')
     expect(wrapper.find('.order-amount').text()).toContain('¥100.00')
-    expect(wrapper.text()).toContain('支付后到账¥120.00')
+    expect(wrapper.find('.total-row--credited').text()).toContain('支付后到账¥120.00')
 
-    await input.setValue('KFBAD')
+    await wrapper.find('.total-row--promo .link').trigger('click')
+    await wrapper.find('.total-row--promo .pill').trigger('click')
+    await wrapper.find('input').setValue('KFBAD')
     await wrapper.findAll('.promo-row button')[0].trigger('click')
     await flushPromises()
     expect(wrapper.find('.promo-bad').text()).toContain('促销码名额已用完')
@@ -223,10 +229,12 @@ describe('结算页', () => {
     expect(wrapper.text()).toContain('KF20260927A0001')
     expect(wrapper.text()).toContain('支付宝网页支付扫码支付')
     expect(wrapper.text()).toContain('订单已生成，请扫码完成付款')
+    // 下单后支付方式不再是可点列表，改方式要走退回选择的那一步。
+    expect(wrapper.findAll('.checkout-side .pay-method')).toHaveLength(0)
     wrapper.unmount()
   })
 
-  it('换支付方式会把已生成的单退回选择步骤，避免两张码同时可扫', async () => {
+  it('更换支付方式会退回选择步骤，并提醒旧单在超时前仍可支付', async () => {
     queryParams = { package: '11' }
     mockRoutes({ 'GET /wallet': WALLET, 'POST /orders': PENDING })
     const wrapper = mountView(CheckoutView)
@@ -234,9 +242,10 @@ describe('结算页', () => {
     await wrapper.findAll('.checkout-side button').find((node) => node.text().includes('扫码支付'))!.trigger('click')
     await flushPromises()
     expect(wrapper.find('.qr-box').exists()).toBe(true)
-    await wrapper.findAll('.checkout-main .tile')[1].trigger('click')
+    await wrapper.findAll('.checkout-side button').find((node) => node.text() === '更换支付方式')!.trigger('click')
     expect(wrapper.find('.qr-box').exists()).toBe(false)
-    expect(wrapper.text()).toContain('已切换支付方式，请重新下单')
+    expect(wrapper.find('.promo-bad').text()).toContain('请勿扫描旧二维码')
+    expect(wrapper.findAll('.checkout-side .pay-method')).toHaveLength(2)
     wrapper.unmount()
   })
 
