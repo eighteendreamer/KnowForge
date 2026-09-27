@@ -4,7 +4,9 @@ import {
   NAlert,
   NButton,
   NDataTable,
+  NDivider,
   NEmpty,
+  NForm,
   NFormItem,
   NInput,
   NInputNumber,
@@ -113,6 +115,12 @@ const typeOptions = computed(() =>
 function specOf(channelType: string): ChannelTypeSpec | undefined {
   return specs.value.find((item) => item.channel_type === channelType)
 }
+// 下拉里露出"正式/沙箱"就够了，完整 URL 在字段提示里看。
+function optionShort(option: string): string {
+  if (option.includes('sandbox')) return '沙箱网关（openapi-sandbox.dl.alipaydev.com）'
+  if (option.includes('openapi.alipay.com')) return '正式网关（openapi.alipay.com）'
+  return option
+}
 
 function openCreate() {
   createForm.channel_type = typeOptions.value[0]?.value ?? 'custom'
@@ -166,7 +174,9 @@ function openConfig(row: RechargeChannelRow) {
   configForm.display_name = row.display_name
   for (const key of Object.keys(drafts)) delete drafts[key]
   for (const field of specOf(row.channel_type)?.fields ?? []) {
-    drafts[field.key] = { value: row.credentials.find((item) => item.key === field.key)?.value ?? '', dirty: false }
+    const stored = row.credentials.find((item) => item.key === field.key)
+    // 有默认值的项（如网关地址）先选中默认，别让人以为还要自己动手填一遍。
+    drafts[field.key] = { value: stored?.value ?? field.default ?? '', dirty: false }
   }
   for (const item of row.credentials) {
     if (!(item.key in drafts)) drafts[item.key] = { value: item.value ?? '', dirty: false }
@@ -205,6 +215,7 @@ function saveConfig() {
 function hintOf(field: CredentialFieldSpec): string | undefined {
   const stored = storedOf(field.key)
   const parts: string[] = []
+  if (field.required && !stored) parts.push('必填')
   if (field.help) parts.push(field.help)
   if (stored) {
     parts.push(
@@ -212,14 +223,24 @@ function hintOf(field: CredentialFieldSpec): string | undefined {
         ? `已配置 · 指纹 ${stored.fingerprint} · 版本 ${stored.key_version} · ${formatDate(stored.set_at)}`
         : `版本 ${stored.key_version} · ${formatDate(stored.set_at)}`
     )
-  } else if (field.secret && field.required) {
+  } else if (field.secret) {
     parts.push('保存后不再回显；粘贴新值即轮换，清空即删除。')
   }
-  return parts.length ? parts.join(' ') : undefined
+  return parts.length ? parts.join(' · ') : undefined
 }
-function missingField(field: CredentialFieldSpec): boolean {
-  return field.required && !storedOf(field.key) && !drafts[field.key]?.value.trim()
-}
+// 必填的厂商身份/密钥放前面，回调地址与可选证书放后面，中间一条分隔线，
+// 这样第一屏只看到真正必须填的那几项。
+const optionalStart = computed(() =>
+  configFields.value.findIndex((field) => !field.required && field.editable)
+)
+const stillMissing = computed(() => {
+  const row = configTarget.value
+  if (!row) return ''
+  const reasons: string[] = []
+  if (row.configuration.missing.length) reasons.push(`缺 ${row.configuration.missing.join('、')}`)
+  if (row.configuration.problem) reasons.push(row.configuration.problem)
+  return reasons.join('；')
+})
 
 function verify(row: RechargeChannelRow) {
   verifyTarget.value = row.display_name
@@ -457,51 +478,58 @@ onMounted(load)
     v-model:show="configOpen"
     preset="card"
     :title="`完善配置 · ${configTarget?.display_name ?? ''}`"
+    :segmented="{ content: true, footer: 'soft' }"
     class="channel-form"
   >
-    <NFormItem label="显示名称"><NInput v-model:value="configForm.display_name" :maxlength="100" /></NFormItem>
-    <NFormItem
-      v-for="field in configFields"
-      :key="field.key"
-      :label="field.label"
-      :required="field.required"
-      :validation-status="missingField(field) ? 'error' : undefined"
-      :feedback="hintOf(field)"
-    >
-      <NSelect
-        v-if="field.options.length"
-        :value="drafts[field.key]?.value ?? ''"
-        :options="field.options.map((option) => ({ label: option, value: option }))"
-        :disabled="!field.editable"
-        @update:value="(value: string) => touch(field.key, value)"
-      />
-      <NInput
-        v-else-if="field.multiline"
-        :value="drafts[field.key]?.value ?? ''"
-        type="textarea"
-        :autosize="{ minRows: 4, maxRows: 12 }"
-        :input-props="{ autocomplete: 'off' }"
-        :maxlength="field.max_length"
-        :disabled="!field.editable"
-        :placeholder="storedOf(field.key) ? '留空即保持不变，粘贴新值即轮换' : '必填'"
-        @update:value="(value: string) => touch(field.key, value)"
-      />
-      <NInput
-        v-else
-        :value="drafts[field.key]?.value ?? ''"
-        :type="field.secret ? 'password' : 'text'"
-        :show-password-on="field.secret ? 'click' : undefined"
-        :input-props="{ autocomplete: 'off' }"
-        :maxlength="field.max_length"
-        :disabled="!field.editable"
-        :placeholder="storedOf(field.key) ? '留空即保持不变' : ''"
-        @update:value="(value: string) => touch(field.key, value)"
-      />
-    </NFormItem>
-    <div class="form-actions">
-      <NButton @click="configOpen = false">取消</NButton>
-      <NButton type="primary" :loading="busy" @click="saveConfig">保存配置</NButton>
-    </div>
+    <template #header-extra>
+      <span class="muted channel-subtitle">
+        {{ configTarget?.code }} · {{ typeLabels[configTarget?.channel_type ?? ''] ?? configTarget?.channel_type }}
+      </span>
+    </template>
+    <NForm label-placement="left" label-align="left" label-width="150">
+      <NFormItem label="显示名称"><NInput v-model:value="configForm.display_name" :maxlength="100" /></NFormItem>
+      <template v-for="(field, index) in configFields" :key="field.key">
+        <NDivider v-if="index === optionalStart" class="form-divider" />
+        <NFormItem :label="field.label" :required="field.required" :feedback="hintOf(field)">
+          <NSelect
+            v-if="field.options.length"
+            :value="drafts[field.key]?.value ?? null"
+            :options="field.options.map((option) => ({ label: optionShort(option), value: option }))"
+            :disabled="!field.editable"
+            @update:value="(value: string) => touch(field.key, value)"
+          />
+          <NInput
+            v-else-if="field.multiline"
+            :value="drafts[field.key]?.value ?? ''"
+            type="textarea"
+            :autosize="{ minRows: 3, maxRows: 10 }"
+            :input-props="{ autocomplete: 'off', class: 'pem-input' }"
+            :maxlength="field.max_length"
+            :disabled="!field.editable"
+            :placeholder="storedOf(field.key) ? '留空即保持不变，粘贴新值即轮换' : '粘贴厂商给的内容，裸 base64 或 PEM 都行'"
+            @update:value="(value: string) => touch(field.key, value)"
+          />
+          <NInput
+            v-else
+            :value="drafts[field.key]?.value ?? ''"
+            :type="field.secret ? 'password' : 'text'"
+            :show-password-on="field.secret ? 'click' : undefined"
+            :input-props="{ autocomplete: 'off' }"
+            :maxlength="field.max_length"
+            :disabled="!field.editable"
+            :placeholder="storedOf(field.key) ? '留空即保持不变' : ''"
+            @update:value="(value: string) => touch(field.key, value)"
+          />
+        </NFormItem>
+      </template>
+    </NForm>
+    <p v-if="stillMissing" class="muted form-summary">补齐后才能在列表里启用：{{ stillMissing }}</p>
+    <template #footer>
+      <div class="form-actions form-actions--flush">
+        <NButton @click="configOpen = false">取消</NButton>
+        <NButton type="primary" :loading="busy" @click="saveConfig">保存配置</NButton>
+      </div>
+    </template>
   </NModal>
 
   <NModal v-model:show="verifyOpen" preset="card" :title="`连通性自检 · ${verifyTarget}`" class="modal-form">
@@ -537,8 +565,19 @@ onMounted(load)
   background: #f4f5f7;
   color: #767c82;
 }
-.channel-form {
-  width: min(760px, calc(100vw - 40px));
+.channel-subtitle {
+  font-size: 13px;
+  margin-left: 12px;
+}
+.form-divider {
+  margin: 6px 0 18px;
+}
+.form-summary {
+  margin: 4px 0 0;
+  font-size: 13px;
+}
+.form-actions--flush {
+  margin-top: 0;
 }
 .cell-stacked {
   display: flex;

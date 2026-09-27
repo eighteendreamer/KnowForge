@@ -179,6 +179,7 @@ CREDENTIAL_SPECS: Final[dict[str, list[CredentialField]]] = {
             help="选错网关的表现是签名有效却查不到应用，所以只允许下拉。",
             default=ALIPAY_GATEWAY_PRODUCTION,
             options=(ALIPAY_GATEWAY_PRODUCTION, ALIPAY_GATEWAY_SANDBOX),
+            required=False,
         ),
         CredentialField(
             "app_private_key",

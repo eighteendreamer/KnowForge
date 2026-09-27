@@ -1,7 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { defineComponent, h } from 'vue'
-import { NDialogProvider, NInput, NMessageProvider, type SelectOption } from 'naive-ui'
+import { NDialogProvider, NFormItem, NInput, NMessageProvider, NSelect, type SelectOption } from 'naive-ui'
 import RechargeView from '../views/RechargeView.vue'
 import { api } from '../api/client'
 import type { ChannelTypeSpec, RechargeChannelRow } from '../api/types'
@@ -24,7 +24,7 @@ const SPEC: ChannelTypeSpec = {
       editable: true, default: null, options: [], max_length: 32, multiline: false,
     },
     {
-      key: 'gateway_url', label: '网关地址', help: '', secret: false, required: true, editable: true,
+      key: 'gateway_url', label: '网关地址', help: '', secret: false, required: false, editable: true,
       default: 'https://openapi.alipay.com/gateway.do', options: ['https://openapi.alipay.com/gateway.do'],
       max_length: 120, multiline: false,
     },
@@ -222,6 +222,22 @@ it('自检通过后徽章带上自检时间，未自检时明确说还没验过'
   await flushPromises()
   expect(wrapper.text()).toContain('自检通过')
   expect(wrapper.text()).toContain('自检于')
+})
+
+it('必填只标真正缺了就打不通厂商的项，有默认值的字段预选好并归到可选区', async () => {
+  wrapper = await openConfigDialog()
+  const required = wrapper
+    .findAllComponents(NFormItem)
+    .filter((item) => item.props('required'))
+    .map((item) => item.props('label'))
+  expect(required).toEqual(['应用 APPID', '应用私钥'])
+  const gateway = wrapper
+    .findAllComponents(NSelect)
+    .find((select) => ((select.props('options') as SelectOption[]) ?? []).length > 0)!
+  expect(gateway.props('value')).toBe('https://openapi.alipay.com/gateway.do')
+  // 网关地址虽然没存过，但默认值已选中，不该以"必填"的姿态要求人操作。
+  expect(required).not.toContain('网关地址')
+  expect(wrapper.findAll('.form-divider')).toHaveLength(1)
 })
 
 it('新增渠道只收类型、代码与显示名称，凭据留到完善配置里填', async () => {

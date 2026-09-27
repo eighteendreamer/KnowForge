@@ -90,9 +90,10 @@ def test_readonly_fields_carry_a_default_that_passes_its_own_validator() -> None
 
 
 def test_the_three_providers_require_exactly_the_fields_the_merchant_console_gives_us() -> None:
-    # 回调地址与"两种模式二选一"的公钥项都不在这里：它们由 configuration_error 管，
-    # 因为缺回调只是退化成主动查单，不是配不了。
-    assert set(specs.required_keys("alipay")) == {"app_id", "gateway_url", "app_private_key"}
+    # 只有"少了就打不通厂商"的项才算必填。网关地址有默认值（正式网关），表单会预选好，
+    # 不该以"必填"的姿态去要求人操作它。
+    assert set(specs.required_keys("alipay")) == {"app_id", "app_private_key"}
+    assert specs.field_map("alipay")["gateway_url"].default == specs.ALIPAY_GATEWAY_PRODUCTION
     assert set(specs.required_keys("wechat")) == {
         "mch_id",
         "app_id",
