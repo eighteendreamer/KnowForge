@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import hashlib
 import json
 import urllib.parse
 from dataclasses import dataclass
@@ -8,20 +9,31 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 import httpx
+from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 
 from app.services.payments.providers.base import (
     CHECK_TIMEOUT_SECONDS,
     Check,
+    NotifyRequest,
+    NotifyResult,
+    OrderRequest,
+    OrderTicket,
+    PaidState,
+    ProviderError,
     SelfCheck,
     require,
+    yuan_to_cent,
 )
 
 # 支付宝按 "yyyy-MM-dd HH:mm:ss" 校验 timestamp 与服务器时差，签名串里必须用东八区时间；
 # 直接取本机时间会在部署到非 CST 机器时报 Invalid signature，所以显式钉住时区。
 CHINA_TZ = ZoneInfo("Asia/Shanghai")
 SELF_CHECK_OUT_TRADE_NO = "KFSELFCHECK00000000000000000"
+PAGE_PAY_METHOD = "alipay.trade.page.pay"
+# 交易关闭只有 TRADE_CLOSED，TRADE_SUCCESS 与 TRADE_FINISHED 都算钱已到账。
+TRADE_PAID_STATUSES = frozenset({"TRADE_SUCCESS", "TRADE_FINISHED"})
 # 通知验签要剔除的两个键。请求签名只剔 sign（sign_type 参与签名），两者规则不同，别混用。
 NOTIFY_EXCLUDED_KEYS = frozenset({"sign", "sign_type"})
 REQUEST_EXCLUDED_KEYS = frozenset({"sign"})
@@ -181,6 +193,93 @@ def _top_level_sign(raw: str) -> str | None:
     return str(value) if value else None
 
 
+def verification_key(credentials: dict[str, str]) -> str | None:
+    """验签要用的支付宝侧公钥：公钥模式取配置的公钥，证书模式从支付宝公钥证书里抽公钥。
+
+    两种模式共用一条路径，避免"没配公钥就静默跳过验签"。
+    """
+    if credentials.get("alipay_public_key"):
+        return credentials["alipay_public_key"]
+    certificate = credentials.get("alipay_public_cert")
+    if not certificate:
+        return None
+    public_key = x509.load_pem_x509_certificate(certificate.encode()).public_key()
+    return public_key.public_bytes(
+        serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo
+    ).decode()
+
+
+def cent_to_yuan(amount_cent: int) -> str:
+    """支付宝金额单位是元、且要求两位小数字符串；用整除拼串，不走 float。"""
+    return f"{amount_cent // 100}.{amount_cent % 100:02d}"
+
+
+async def create_order(credentials: dict[str, str], order: OrderRequest) -> OrderTicket:
+    """电脑网站支付只生成一条带签名的跳转地址，真实扣款发生在支付宝页面上。
+
+    因此下单成功不等于收到钱，入账只能靠回调或查单确认。
+    """
+    require(credentials, "alipay", "app_id", "app_private_key", "gateway_url")
+    params = common_params(
+        app_id=credentials["app_id"],
+        method=PAGE_PAY_METHOD,
+        biz_content={
+            "product_code": "FAST_INSTANT_TRADE_PAY",
+            "out_trade_no": order.out_trade_no,
+            "total_amount": cent_to_yuan(order.amount_cent),
+            "subject": order.subject[:256],
+        },
+        timestamp=now_stamp(),
+        notify_url=order.notify_url or credentials.get("notify_url") or None,
+        return_url=order.return_url or credentials.get("return_url") or None,
+    )
+    signed = await asyncio.to_thread(sign_params, params, credentials["app_private_key"])
+    return OrderTicket(redirect_url=page_pay_url(credentials["gateway_url"], signed))
+
+
+async def query_order(credentials: dict[str, str], out_trade_no: str) -> PaidState:
+    """查单结论只在响应验签通过后才算数：未验签的报文不能拿来记账。"""
+    result = await query_trade(credentials, out_trade_no)
+    node = result.payload
+    code = str(node.get("code") or "")
+    detail = f"code={code or '—'} {node.get('sub_msg') or node.get('msg') or ''}".strip()
+    if code != "10000":
+        return PaidState(False, detail=detail)
+    key_material = verification_key(credentials)
+    if not key_material:
+        return PaidState(False, detail=detail + "；未配支付宝公钥或支付宝公钥证书，无法确认响应真伪")
+    if not result.sign or not result.signed_text:
+        return PaidState(False, detail=detail + "；响应里没有签名")
+    verified = await asyncio.to_thread(verify, key_material, result.signed_text, result.sign)
+    if not verified:
+        return PaidState(False, detail=detail + "；响应验签失败，按未支付处理")
+    status = str(node.get("trade_status") or "")
+    return PaidState(
+        paid=status in TRADE_PAID_STATUSES,
+        amount_cent=yuan_to_cent(node.get("buyer_pay_amount") or node.get("total_amount")),
+        provider_trade_no=node.get("trade_no"),
+        detail=f"trade_status={status or '—'} " + detail,
+    )
+
+
+def parse_notify(credentials: dict[str, str], notify: NotifyRequest) -> NotifyResult:
+    """异步通知验签。待签名串用的是表单原始字段，先解析成模型再重编码会把签名打散。"""
+    key_material = verification_key(credentials)
+    if not key_material:
+        raise ProviderError("未配置支付宝公钥或支付宝公钥证书，无法校验回调签名")
+    if not verify(key_material, notify_sign_content(notify.form), str(notify.form.get("sign") or "")):
+        raise ProviderError("回调验签失败")
+    status = str(notify.form.get("trade_status") or "")
+    return NotifyResult(
+        out_trade_no=str(notify.form.get("out_trade_no") or ""),
+        paid=status in TRADE_PAID_STATUSES,
+        amount_cent=yuan_to_cent(notify.form.get("buyer_pay_amount") or notify.form.get("total_amount")),
+        provider_trade_no=notify.form.get("trade_no"),
+        digest=hashlib.sha256(notify.raw_body).hexdigest(),
+        detail=f"trade_status={status or '—'}",
+    )
+
+
 async def self_check(credentials: dict[str, str]) -> SelfCheck:
     require(credentials, "alipay", "app_id", "app_private_key", "gateway_url")
     try:
@@ -201,17 +300,27 @@ async def self_check(credentials: dict[str, str]) -> SelfCheck:
         checks.append(Check("应用未获得该接口权限", False, detail + "；需在开放平台完成产品签约或授权"))
     else:
         checks.append(Check("网关拒绝请求", False, detail))
-    if credentials.get("alipay_public_key"):
+    key_material = verification_key(credentials)
+    if key_material is None:
+        checks.append(
+            Check(
+                "支付宝侧验签公钥",
+                False,
+                "公钥模式请填「支付宝公钥」，证书模式请填「支付宝公钥证书」，否则响应和回调都无法校验",
+            )
+        )
+    else:
+        source = "支付宝公钥" if credentials.get("alipay_public_key") else "支付宝公钥证书"
         ok = bool(result.sign and result.signed_text) and await asyncio.to_thread(
-            verify, credentials["alipay_public_key"], str(result.signed_text), str(result.sign)
+            verify, key_material, str(result.signed_text), str(result.sign)
         )
         checks.append(
             Check(
                 "响应验签",
                 ok,
-                "已用支付宝公钥校验响应原文"
+                f"已用{source}校验响应原文"
                 if ok
-                else "配的支付宝公钥与网关签名不匹配：公钥模式要拷控制台的「支付宝公钥」（不是应用公钥）；"
+                else f"{source}与网关签名不匹配：公钥模式要拷控制台的「支付宝公钥」（不是应用公钥）；"
                 "应用若走公钥证书模式，则改填支付宝公钥证书",
             )
         )

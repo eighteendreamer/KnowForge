@@ -12,7 +12,7 @@ from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from test_recharge_config import alipay_credentials, create_channel
 
-from app.services.payments.providers import alipay, registry, stripe, wechat
+from app.services.payments.providers import alipay, base, registry, stripe, wechat
 from app.services.payments.providers.base import ProviderError
 
 APIV3_KEY = "KnowforgeTestApiV3Key32Chars!!!!"
@@ -44,6 +44,21 @@ class StubHttp:
     async def get(self, url: str, headers: dict[str, str] | None = None, **kwargs: Any) -> Any:
         self.calls.append({"method": "GET", "url": url, "data": {}, "headers": headers or {}})
         return self.handler("GET", url, {}, headers or {})
+
+    async def request(
+        self,
+        method: str,
+        url: str,
+        headers: dict[str, str] | None = None,
+        content: str | None = None,
+        data: dict[str, str] | None = None,
+        **kwargs: Any,
+    ) -> Any:
+        body = json.loads(content) if content else (data or {})
+        self.calls.append(
+            {"method": method, "url": url, "data": body, "headers": headers or {}, "raw": content or ""}
+        )
+        return self.handler(method, url, body, headers or {})
 
 
 class StubResponse:
@@ -428,14 +443,26 @@ async def test_self_check_keeps_the_event_loop_free(context, payment_keys, monke
     assert ticks >= 5, f"自检期间事件循环停摆了，只走了 {ticks} 拍"
 
 
-async def test_registry_refuses_a_channel_type_that_cannot_be_verified(context, payment_keys):
+async def test_registry_refuses_a_channel_type_that_cannot_take_orders(context, payment_keys):
+    """custom（线下转账）四类动作全都没有实现，每一条路都要报同一句人话，不能悄悄返回空结论。"""
     offline = await create_channel(
         context, payment_keys, code="bank-transfer", channel_type="custom", credentials={}, enabled=True
     )
     assert offline.status_code == 200, offline.text
-    try:
-        await registry.run_self_check("custom", {})
-    except ProviderError as reason:
-        assert "无需自检" in str(reason)
-    else:  # pragma: no cover
-        raise AssertionError("custom 类型不应该有自检实现")
+    order = base.OrderRequest(out_trade_no="KF0001", amount_cent=100, subject="测试")
+    notify = base.NotifyRequest(headers={}, raw_body=b"{}", form={})
+    attempts = (
+        registry.run_self_check("custom", {}),
+        registry.create_order("custom", {}, order),
+        registry.query_order("custom", {}, "KF0001"),
+        registry.parse_notify("custom", {}, notify),
+    )
+    for attempt in attempts:
+        try:
+            await attempt
+        except ProviderError as reason:
+            assert "不支持" in str(reason)
+        else:  # pragma: no cover
+            raise AssertionError("custom 类型不应该有任何厂商实现")
+    assert registry.supports_orders("custom") is False
+    assert registry.supports_orders("alipay") is True
