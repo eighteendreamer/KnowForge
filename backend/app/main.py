@@ -20,6 +20,7 @@ from app.api.routes import (
     documents,
     evaluations,
     knowledge,
+    payments,
     portal_auth,
     portal_keys,
     portal_overview,
@@ -106,6 +107,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(portal_keys.router)
     app.include_router(portal_overview.router)
     app.include_router(portal_wallet.router)
+    app.include_router(payments.router)
+    app.include_router(payments.notify_router)
     app.include_router(recharge.router)
     app.include_router(tags.router)
     app.include_router(tags.document_router)

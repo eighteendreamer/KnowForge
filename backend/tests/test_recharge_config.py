@@ -112,7 +112,10 @@ async def test_channel_secret_material_never_leaves_the_server(context, payment_
     )
     assert app_id["secret"] is False and app_id["value"] == "2021000000000000"
     wallet = await client.get("/v1/portal/wallet", headers=context["customer_headers"])
-    assert wallet.json()["data"]["channels"] == [{"code": "alipay", "display_name": "支付宝"}]
+    # 门户只拿得到"能不能下单"这类展示字段，凭据一个键都不能出现在这个响应里。
+    assert wallet.json()["data"]["channels"] == [
+        {"code": "alipay", "display_name": "支付宝", "channel_type": "alipay", "orderable": True}
+    ]
     assert "app_id" not in wallet.text and "credentials" not in wallet.text
 
 

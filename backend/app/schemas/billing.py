@@ -15,6 +15,13 @@ class PackageInput(StrictModel):
     sort_order: int = Field(default=0, ge=0, le=9999)
 
 
+class OrderInput(StrictModel):
+    """下单只收"选哪个渠道、买哪个档位"：金额一律服务端按档位快照，客户端报的数字一概不信。"""
+
+    channel_code: str = Field(min_length=1, max_length=30, pattern=r"^[a-z0-9_-]+$")
+    package_id: int = Field(gt=0)
+
+
 class RechargeInput(StrictModel):
     amount_cent: int = Field(gt=0, le=100_000_000)
     note: str = Field(min_length=1, max_length=200)

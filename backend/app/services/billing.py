@@ -4,7 +4,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import BalanceTransaction, RechargeChannel, RechargePackage
+from app.models import BalanceTransaction, PaymentOrder, RechargeChannel, RechargePackage
 from app.services.payments import credentials as channel_credentials
 
 
@@ -46,6 +46,26 @@ def package_view(row: RechargePackage) -> dict[str, Any]:
         "bonus_cent": row.bonus_cent,
         "enabled": row.enabled,
         "sort_order": row.sort_order,
+    }
+
+
+def order_view(row: PaymentOrder, channel_name: str = "") -> dict[str, Any]:
+    """订单对外视图。付款要用的 code_url / redirect_url 只在未付时有意义，付完就不必再回传。"""
+    settled = row.status == "paid"
+    return {
+        "out_trade_no": row.out_trade_no,
+        "status": row.status,
+        "channel_name": channel_name,
+        "amount_cent": row.amount_cent,
+        "bonus_cent": row.bonus_cent,
+        "credited_cent": row.amount_cent + row.bonus_cent if settled else 0,
+        "currency": row.currency,
+        "code_url": None if settled else row.code_url,
+        "redirect_url": None if settled else row.redirect_url,
+        "provider_trade_no": row.provider_trade_no,
+        "created_at": row.created_at,
+        "expires_at": row.expires_at,
+        "paid_at": row.paid_at,
     }
 
 
