@@ -50,6 +50,8 @@
 - 渠道支付凭据只能经 `backend/app/services/payments/crypto.py` 进出库（HKDF 派生 + AES-256-GCM，AAD 绑 `channel_id|key_name|key_version`），明文永不进日志、审计、响应体；加密主密钥 `KNOFORGE_PAYMENT_MASTER_KEY` 只能放 `.env`，与被加密的凭据同库同源等于没加密。主密钥缺失时所有凭据读写必须 fail-closed 报 503/5003，不许降级成明文存储。
 - `backend/app/services/payments/specs.py` 的 `CREDENTIAL_SPECS` 是渠道凭据字段的唯一事实源：加字段要同改 spec、provider 客户端与 `test_payment_specs.py`，管理端表单从 `GET /v1/admin/recharge/credential-specs` 渲染，前端不得复制一份字段清单。凭据 PATCH 是三态契约（键缺省=保留、有值=轮换且 `key_version+1`、null=清除），任何"总是把全部字段发出去"的写法都会把未改动密钥静默清空——`test_payment_credentials.py` 有守卫。
 - 支付签名/验签与证书解析属 CPU 重活，请求与回调处理函数里必须 `asyncio.to_thread`（心跳回归见 `test_payment_selfcheck.py`）；厂商回调 handler 必须消费原始字节或原始表单字段，禁止经 Pydantic 反序列化后重编码再验签。live 用例唯一入口是 `KNOFORGE_LIVE_PAYMENT_TESTS=1` 加 `-m live`，默认全 skip，不许把真商户凭据写进仓库或夹具。
+- 在线入账只有一个写法：`backend/app/services/payments/settlement.py::mark_paid_and_credit`。它先 `SELECT ... FOR UPDATE` 锁订单行、读回当前状态，只有未 `paid` 的那次才追加流水——回调重投、门户轮询查单、beat 对账同时到达也只入一次账。任何"直接 `session.add(BalanceTransaction(...))` 给订单入账"的新路径都等于绕过幂等，`payment_order_id` 为空只允许人工入账使用。厂商回执金额与订单快照不一致时一分钱不记，写 `amount_mismatch` 事件挂起，管理端按 `?review=true` 筛；状态机允许 `expired/failed→paid`（迟到的支付必须还能入账），被挂起的单不再进 `reconcile` 扫描以免变成无限重试。
+- 下单/查单/回调的厂商差异只准写在 `backend/app/services/payments/providers/` 里，路由通过 `registry.create_order|query_order|parse_notify` 分发（`parse_notify` 在 registry 内统一 `to_thread`，路由不要再各自包）。回给厂商的应答体各家不同（支付宝纯文本 `success`、微信 HTTP 200 + JSON、Stripe HTTP 200），集中在 `api/routes/payments.py::_ack/_reject`，回错文本厂商会无限重投。门户下单是"先落库再打厂商"：反过来的中途崩溃会留下厂商知道而我们不知道的单，所以订单行的 `commit` 必须发生在 `registry.create_order` 之前。
 
 ## 构建、测试与运行
 
