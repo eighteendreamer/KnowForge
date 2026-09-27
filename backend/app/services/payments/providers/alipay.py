@@ -111,7 +111,10 @@ def common_params(
         "sign_type": "RSA2",
         "timestamp": timestamp,
         "version": "1.0",
-        "biz_content": json.dumps(biz_content, ensure_ascii=False, separators=(",", ":")),
+        # biz_content 必须是纯 ASCII：签名算在 UTF-8 字节上，而网关按 charset 解表单时
+        # 对非 ASCII 的还原与我们签的那串字节不一致，中文商品名会直接吃 isv.invalid-signature。
+        # 转义成 \uXXXX 后两边看到的是同一串字符，网关解出来的 subject 仍然是中文（实测 code=10000）。
+        "biz_content": json.dumps(biz_content, ensure_ascii=True, separators=(",", ":")),
     }
     if notify_url:
         params["notify_url"] = notify_url

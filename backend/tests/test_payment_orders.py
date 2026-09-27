@@ -74,6 +74,25 @@ def test_cent_and_yuan_conversions_never_lose_a_fen():
     assert yuan_to_cent("x") is None
 
 
+def test_common_params_escapes_non_ascii_in_biz_content(payment_keys):
+    """真网关实测：biz_content 带未转义的中文会吃 isv.invalid-signature。
+
+    签名算在 UTF-8 字节上，网关按 charset 解表单时还原出的字节与我们签的那串不一致，
+    所以发出去的参数串必须保持 ASCII，subject 用 \\uXXXX 表达（网关解出来仍是中文）。
+    """
+    params = alipay.common_params(
+        app_id="2021000000000000",
+        method="alipay.trade.precreate",
+        biz_content={"subject": "额度充值 · 标准档", "out_trade_no": "KF0001"},
+        timestamp="2026-09-27 10:00:00",
+    )
+    assert params["biz_content"].isascii(), params["biz_content"]
+    assert json.loads(params["biz_content"])["subject"] == "额度充值 · 标准档"
+    signed = alipay.sign_params(params, payment_keys["private_pem"])
+    # 签名串本身也要能按 ASCII 送出去，否则 httpx 的百分号编码又会引入同一类分歧。
+    assert alipay.request_sign_content(signed).isascii()
+
+
 async def test_alipay_precreate_returns_a_qr_code_not_a_claim_of_payment(monkeypatch, payment_keys):
     """预下单只产出二维码串，收到钱与否留给回调或查单，所以不该有 provider 交易号。"""
 
