@@ -14,6 +14,7 @@ import {
   NSelect,
   NSpace,
   NSwitch,
+  NTag,
   useDialog,
   type DataTableColumns,
 } from 'naive-ui'
@@ -22,8 +23,12 @@ import { formatCent, formatDate, toCent, useAction } from '../api/feedback'
 import type {
   ChannelTypeSpec,
   CredentialFieldSpec,
+  OrderPage,
+  OrderStatus,
   Page,
   RechargeChannelRow,
+  RechargeOrderDetail,
+  RechargeOrderRow,
   RechargePackageRow,
   SelfCheckResult,
 } from '../api/types'
@@ -52,16 +57,38 @@ const verifyOpen = ref(false)
 const verifyResult = ref<SelfCheckResult | null>(null)
 const verifyTarget = ref('')
 
+const ORDER_PAGE_SIZE = 20
+const orders = ref<RechargeOrderRow[]>([])
+const orderTotal = ref(0)
+const orderPage = ref(0)
+const orderStatus = ref<OrderStatus | ''>('')
+const orderSearch = ref('')
+const reviewOnly = ref(false)
+const detailOpen = ref(false)
+const detail = ref<RechargeOrderDetail | null>(null)
+
 async function fetchAll() {
-  const [packageData, channelData, specData] = await Promise.all([
+  const [packageData, channelData, specData, orderData] = await Promise.all([
     api<Page<RechargePackageRow>>('/recharge/packages'),
     api<Page<RechargeChannelRow>>('/recharge/channels'),
     api<{ types: ChannelTypeSpec[] }>('/recharge/credential-specs'),
+    api<OrderPage>(`/recharge/orders?${orderQuery()}`),
   ])
   packages.value = packageData.items
   channels.value = channelData.items
   specs.value = specData.types
+  orders.value = orderData.items
+  orderTotal.value = orderData.total
 }
+
+function orderQuery() {
+  const params = new URLSearchParams({ limit: String(ORDER_PAGE_SIZE), offset: String(orderPage.value * ORDER_PAGE_SIZE) })
+  if (orderStatus.value) params.set('status', orderStatus.value)
+  if (reviewOnly.value) params.set('review', 'true')
+  if (orderSearch.value.trim()) params.set('q', orderSearch.value.trim())
+  return params.toString()
+}
+
 function load() {
   return run(fetchAll)
 }
@@ -395,13 +422,78 @@ const StatusPill = {
   },
 }
 
+const ORDER_STATUS_LABEL: Record<OrderStatus, string> = {
+  created: '已下单',
+  pending: '待支付',
+  paid: '已到账',
+  expired: '已超时',
+  failed: '下单失败',
+}
+const orderStatusOptions = [
+  { label: '全部状态', value: '' },
+  ...Object.entries(ORDER_STATUS_LABEL).map(([value, label]) => ({ label, value })),
+]
+const ORDER_STATUS_TAG: Record<OrderStatus, 'default' | 'info' | 'success' | 'warning' | 'error'> = {
+  created: 'info',
+  pending: 'warning',
+  paid: 'success',
+  expired: 'default',
+  failed: 'error',
+}
+const EVENT_LABEL: Record<string, string> = {
+  order_created: '本地建单',
+  order_placed: '厂商受理',
+  provider_rejected: '厂商拒单',
+  credited: '入账',
+  duplicate_notify: '重复通知',
+  amount_mismatch: '金额不符',
+  expired: '超时关单',
+}
+
+function applyOrderFilters() {
+  orderPage.value = 0
+  return run(fetchAll)
+}
+
+function turnOrderPage(step: number) {
+  orderPage.value = Math.max(0, orderPage.value + step)
+  return run(fetchAll)
+}
+
+function openDetail(row: RechargeOrderRow) {
+  return run(async () => {
+    detail.value = await api<RechargeOrderDetail>(`/recharge/orders/${row.out_trade_no}`)
+    detailOpen.value = true
+  })
+}
+
+function eventLabel(kind: string) {
+  return EVENT_LABEL[kind] ?? kind
+}
+
+const orderColumns: DataTableColumns<RechargeOrderRow> = [
+  { title: '下单时间', key: 'created_at', width: 170, render: (row) => formatDate(row.created_at) },
+  { title: '商户单号', key: 'out_trade_no', minWidth: 210, render: (row) => h('code', null, row.out_trade_no) },
+  { title: '账号', key: 'account_username', width: 130 },
+  { title: '渠道', key: 'channel_name', width: 140 },
+  { title: '实付', key: 'amount_cent', width: 110, render: (row) => formatCent(row.amount_cent) },
+  { title: '赠送', key: 'bonus_cent', width: 110, render: (row) => formatCent(row.bonus_cent) },
+  { title: '状态', key: 'status', width: 100, render: (row) => h(NTag, { size: 'small', bordered: false, type: ORDER_STATUS_TAG[row.status] }, () => ORDER_STATUS_LABEL[row.status]) },
+  {
+    title: '操作',
+    key: 'order-actions',
+    width: 90,
+    render: (row) => h(NButton, { size: 'tiny', onClick: () => void openDetail(row) }, () => '详情'),
+  },
+]
+
 onMounted(load)
 </script>
 
 <template>
   <PageHeader title="充值系统管理" description="档位与支付渠道凭据在这里维护；密钥只写不读，列表只显示指纹。" />
   <NAlert type="info" style="margin-bottom: 22px">
-    渠道按厂商收全凭据并可做连通性自检；在线下单与回调入账接入前，入账仍走「用户管理」手动入账（渠道记 manual）。
+    渠道按厂商收全凭据并可做连通性自检；门户在线下单、厂商回调与定时对账已接通，入账只认厂商回执。
   </NAlert>
 
   <section class="section">
@@ -443,6 +535,74 @@ onMounted(load)
       :scroll-x="1180"
     />
   </section>
+
+  <section class="section">
+    <div class="page-heading">
+      <div>
+        <h1 style="font-size: 20px">充值订单</h1>
+        <p>门户在线下单的台账。入账只认厂商回执，金额对不上的单会挂进「待人工核对」。</p>
+      </div>
+      <NSpace :size="8">
+        <NInput v-model:value="orderSearch" placeholder="按商户单号前缀查" size="small" style="width: 200px" @update:value="applyOrderFilters" />
+        <NSelect
+          v-model:value="orderStatus"
+          :options="orderStatusOptions"
+          size="small"
+          style="width: 130px"
+          @update:value="applyOrderFilters"
+        />
+        <NButton size="small" :type="reviewOnly ? 'primary' : 'default'" @click="reviewOnly = !reviewOnly; applyOrderFilters()">
+          待人工核对
+        </NButton>
+        <NButton size="small" :loading="busy" @click="load">刷新</NButton>
+      </NSpace>
+    </div>
+    <NEmpty v-if="!orders.length && !busy" :description="reviewOnly ? '没有待人工核对的订单' : '还没有在线订单'" />
+    <template v-else>
+      <NDataTable
+        :columns="orderColumns"
+        :data="orders"
+        :loading="busy"
+        :row-key="(row) => row.out_trade_no"
+        :bordered="false"
+        :scroll-x="1180"
+      />
+      <div class="row" style="margin-top: 12px; justify-content: flex-end">
+        <span class="muted">共 {{ orderTotal }} 单</span>
+        <NButton size="tiny" :disabled="orderPage === 0" @click="turnOrderPage(-1)">上一页</NButton>
+        <span class="muted">第 {{ orderPage + 1 }} / {{ Math.max(1, Math.ceil(orderTotal / ORDER_PAGE_SIZE)) }} 页</span>
+        <NButton size="tiny" :disabled="(orderPage + 1) * ORDER_PAGE_SIZE >= orderTotal" @click="turnOrderPage(1)">下一页</NButton>
+      </div>
+    </template>
+  </section>
+
+  <NModal v-model:show="detailOpen" preset="card" title="订单明细" class="modal-form">
+    <template v-if="detail">
+      <div class="order-facts">
+        <div><span class="muted">商户单号</span><code>{{ detail.out_trade_no }}</code></div>
+        <div><span class="muted">账号</span>{{ detail.account_username }}</div>
+        <div><span class="muted">渠道</span>{{ detail.channel_name }}（{{ detail.channel_code }}）</div>
+        <div><span class="muted">状态</span>{{ ORDER_STATUS_LABEL[detail.status] }}</div>
+        <div><span class="muted">实付 / 赠送 / 到账</span>{{ formatCent(detail.amount_cent) }} / {{ formatCent(detail.bonus_cent) }} / {{ formatCent(detail.credited_cent) }}</div>
+        <div><span class="muted">厂商交易号</span><code>{{ detail.provider_trade_no ?? '—' }}</code></div>
+        <div><span class="muted">创建 / 过期</span>{{ formatDate(detail.created_at) }} / {{ formatDate(detail.expires_at) }}</div>
+        <div><span class="muted">支付时间</span>{{ formatDate(detail.paid_at) }}</div>
+      </div>
+      <NDivider style="margin: 14px 0">时间线</NDivider>
+      <ul class="event-list">
+        <li v-for="item in detail.events" :key="item.created_at + item.kind">
+          <strong>{{ eventLabel(item.kind) }}</strong>
+          <span class="muted">{{ formatDate(item.created_at) }}</span>
+          <p v-if="Object.keys(item.detail).length" class="muted">{{ JSON.stringify(item.detail) }}</p>
+        </li>
+      </ul>
+    </template>
+    <template #footer>
+      <div class="form-actions">
+        <NButton @click="detailOpen = false">关闭</NButton>
+      </div>
+    </template>
+  </NModal>
 
   <NModal v-model:show="packageOpen" preset="card" :title="packageEditing ? '编辑充值档位' : '新增充值档位'" class="modal-form">
     <NFormItem label="档位名称"><NInput v-model:value="packageForm.label" :maxlength="100" /></NFormItem>

@@ -4,7 +4,7 @@ import { defineComponent, h } from 'vue'
 import { NDialogProvider, NFormItem, NInput, NMessageProvider, NSelect, type SelectOption } from 'naive-ui'
 import RechargeView from '../views/RechargeView.vue'
 import { api } from '../api/client'
-import type { ChannelTypeSpec, RechargeChannelRow } from '../api/types'
+import type { ChannelTypeSpec, RechargeChannelRow, RechargeOrderDetail, RechargeOrderRow } from '../api/types'
 
 vi.mock('../api/client', () => ({ api: vi.fn(), errorMessage: (error: unknown) => String(error) }))
 
@@ -67,11 +67,45 @@ function channelWith(overrides: Partial<RechargeChannelRow>): RechargeChannelRow
   return { ...CHANNEL, ...overrides }
 }
 
-function mockBackend(channels: RechargeChannelRow[] = [CHANNEL]) {
+const ORDER: RechargeOrderRow = {
+  out_trade_no: 'KF20260927A0001',
+  status: 'pending',
+  channel_code: 'alipay-web',
+  channel_name: '支付宝网页支付',
+  account_id: 12,
+  account_username: 'customer',
+  amount_cent: 10000,
+  bonus_cent: 2000,
+  credited_cent: 0,
+  currency: 'CNY',
+  code_url: null,
+  redirect_url: 'https://openapi.alipay.com/gateway.do?sign=abc',
+  provider_trade_no: null,
+  created_at: '2026-09-27T04:00:00Z',
+  expires_at: '2026-09-27T04:30:00Z',
+  paid_at: null,
+}
+
+const ORDER_DETAIL: RechargeOrderDetail = {
+  ...ORDER,
+  status: 'paid',
+  credited_cent: 12000,
+  provider_trade_no: '2026092722001000000099',
+  paid_at: '2026-09-27T04:05:00Z',
+  events: [
+    { kind: 'order_created', detail: { channel: 'alipay' }, created_at: '2026-09-27T04:00:00Z' },
+    { kind: 'credited', detail: { by: 'alipay-web', credited_cent: 12000, from_status: 'pending' }, created_at: '2026-09-27T04:05:00Z' },
+    { kind: 'duplicate_notify', detail: { by: 'alipay-web', status: 'paid' }, created_at: '2026-09-27T04:05:30Z' },
+  ],
+}
+
+function mockBackend(channels: RechargeChannelRow[] = [CHANNEL], orders: RechargeOrderRow[] = []) {
   vi.mocked(api).mockImplementation(async (url: string) => {
     if (url === '/recharge/packages') return { items: [] }
     if (url === '/recharge/credential-specs') return { types: [SPEC] }
     if (url === '/recharge/channels') return { items: channels }
+    if (url.startsWith('/recharge/orders?')) return { items: orders, total: orders.length, limit: 20, offset: 0 }
+    if (url.startsWith('/recharge/orders/')) return ORDER_DETAIL
     if (url.endsWith('/verify')) {
       return {
         channel_id: 7,
@@ -237,7 +271,9 @@ it('必填只标真正缺了就打不通厂商的项，有默认值的字段预�
   expect(required).toEqual(['应用 APPID', '应用私钥'])
   const gateway = wrapper
     .findAllComponents(NSelect)
-    .find((select) => ((select.props('options') as SelectOption[]) ?? []).length > 0)!
+    .find((select) =>
+      ((select.props('options') as SelectOption[]) ?? []).some((option) => option.value === SPEC.fields[1].default)
+    )!
   expect(gateway.props('value')).toBe('https://openapi.alipay.com/gateway.do')
   // 网关地址虽然没存过，但默认值已选中，不该以"必填"的姿态要求人操作。
   expect(required).not.toContain('网关地址')
@@ -269,4 +305,49 @@ it('新增渠道只收类型、代码与显示名称，凭据留到完善配置�
     method: 'POST',
     data: { code: 'alipay-web', display_name: '支付宝网页支付', channel_type: 'alipay' },
   })
+})
+
+it('订单台账列出账号、金额与状态，而不是只给运营一个单号', async () => {
+  mockBackend([CHANNEL], [ORDER])
+  wrapper = mounted()
+  await flushPromises()
+  const row = wrapper.findAll('tbody tr').find((item) => item.text().includes('KF20260927A0001'))
+  expect(row?.text()).toContain('customer')
+  expect(row?.text()).toContain('¥100.00')
+  expect(row?.text()).toContain('¥20.00')
+  expect(row?.text()).toContain('待支付')
+  // 渠道列显示的是给人看的名字，不是 alipay-web 这种内部代码。
+  expect(row?.text()).toContain('支付宝网页支付')
+})
+
+it('筛选条件走服务端查询参数，不在前端裁列表', async () => {
+  mockBackend([CHANNEL], [ORDER])
+  wrapper = mounted()
+  await flushPromises()
+  vi.mocked(api).mockClear()
+  mockBackend([CHANNEL], [ORDER])
+  const statusSelect = wrapper.findAllComponents(NSelect).at(-1)!
+  statusSelect.vm.$emit('update:value', 'paid')
+  await flushPromises()
+  const called = vi.mocked(api).mock.calls.map(([url]) => url).filter((url) => url.startsWith('/recharge/orders?'))
+  expect(called.at(-1)).toContain('status=paid')
+  expect(called.at(-1)).toContain('limit=20')
+  clickButton(wrapper, '待人工核对')
+  await flushPromises()
+  const review = vi.mocked(api).mock.calls.map(([url]) => url).filter((url) => url.startsWith('/recharge/orders?')).at(-1)
+  expect(review).toContain('review=true')
+})
+
+it('订单详情把事件时间线翻成人话，入账来源直接可见', async () => {
+  mockBackend([CHANNEL], [ORDER])
+  wrapper = mounted()
+  await flushPromises()
+  clickButton(wrapper, '详情')
+  await flushPromises()
+  const text = wrapper.text()
+  expect(text).toContain('本地建单')
+  expect(text).toContain('入账')
+  expect(text).toContain('重复通知')
+  expect(text).toContain('2026092722001000000099')
+  expect(text).toContain('"credited_cent":12000')
 })

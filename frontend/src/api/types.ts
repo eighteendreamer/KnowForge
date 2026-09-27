@@ -189,6 +189,38 @@ export interface SelfCheckResult {
   checks: { name: string; ok: boolean; detail: string }[]
 }
 
+export type OrderStatus = 'created' | 'pending' | 'paid' | 'expired' | 'failed'
+
+export interface RechargeOrderRow {
+  out_trade_no: string
+  status: OrderStatus
+  channel_code: string
+  channel_name: string
+  account_id: number
+  account_username: string
+  amount_cent: number
+  bonus_cent: number
+  credited_cent: number
+  currency: string
+  code_url: string | null
+  redirect_url: string | null
+  provider_trade_no: string | null
+  created_at: string
+  expires_at: string
+  paid_at: string | null
+}
+
+export interface RechargeOrderDetail extends RechargeOrderRow {
+  events: { kind: string; detail: Record<string, unknown>; created_at: string }[]
+}
+
+export interface OrderPage {
+  items: RechargeOrderRow[]
+  total: number
+  limit: number
+  offset: number
+}
+
 export interface KeyOwnerRow {
   id: number
   username: string
