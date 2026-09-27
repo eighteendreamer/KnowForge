@@ -4,7 +4,13 @@ import { defineComponent, h } from 'vue'
 import { NDialogProvider, NFormItem, NInput, NMessageProvider, NSelect, type SelectOption } from 'naive-ui'
 import RechargeView from '../views/RechargeView.vue'
 import { api } from '../api/client'
-import type { ChannelTypeSpec, RechargeChannelRow, RechargeOrderDetail, RechargeOrderRow } from '../api/types'
+import type {
+  ChannelTypeSpec,
+  PromoRow,
+  RechargeChannelRow,
+  RechargeOrderDetail,
+  RechargeOrderRow,
+} from '../api/types'
 
 vi.mock('../api/client', () => ({ api: vi.fn(), errorMessage: (error: unknown) => String(error) }))
 
@@ -76,6 +82,8 @@ const ORDER: RechargeOrderRow = {
   account_username: 'customer',
   amount_cent: 10000,
   bonus_cent: 2000,
+  discount_cent: 0,
+  payable_cent: 10000,
   credited_cent: 0,
   currency: 'CNY',
   code_url: null,
@@ -99,11 +107,12 @@ const ORDER_DETAIL: RechargeOrderDetail = {
   ],
 }
 
-function mockBackend(channels: RechargeChannelRow[] = [CHANNEL], orders: RechargeOrderRow[] = []) {
+function mockBackend(channels: RechargeChannelRow[] = [CHANNEL], orders: RechargeOrderRow[] = [], promos: PromoRow[] = []) {
   vi.mocked(api).mockImplementation(async (url: string) => {
     if (url === '/recharge/packages') return { items: [] }
     if (url === '/recharge/credential-specs') return { types: [SPEC] }
     if (url === '/recharge/channels') return { items: channels }
+    if (url === '/recharge/promo-codes') return { items: promos }
     if (url.startsWith('/recharge/orders?')) return { items: orders, total: orders.length, limit: 20, offset: 0 }
     if (url.startsWith('/recharge/orders/')) return ORDER_DETAIL
     if (url.endsWith('/verify')) {
@@ -350,4 +359,74 @@ it('订单详情把事件时间线翻成人话，入账来源直接可见', asyn
   expect(text).toContain('重复通知')
   expect(text).toContain('2026092722001000000099')
   expect(text).toContain('"credited_cent":12000')
+})
+
+const PROMO: PromoRow = {
+  id: 3,
+  code: 'KFNEW100',
+  label: '新用户立减',
+  kind: 'amount_off',
+  value: 1000,
+  min_amount_cent: 5000,
+  starts_at: null,
+  ends_at: null,
+  max_uses: 100,
+  remaining_uses: 97,
+  per_account_limit: 1,
+  used_count: 3,
+  enabled: true,
+  updated_at: '2026-09-27T04:00:00Z',
+}
+
+function mockPromos(promos: PromoRow[]) {
+  mockBackend([CHANNEL], [], promos)
+}
+
+it('促销码列表把规则、名额与门槛翻译成人话，不把 kind/value 直接甩给运营', async () => {
+  mockPromos([PROMO, { ...PROMO, id: 4, code: 'KFPCT10', kind: 'percent', value: 10, min_amount_cent: 0, max_uses: null, remaining_uses: null, used_count: 8 }])
+  wrapper = mounted()
+  await flushPromises()
+  const rows = wrapper.findAll('tbody tr').filter((row) => row.text().includes('KF'))
+  const first = rows.find((row) => row.text().includes('KFNEW100'))!
+  expect(first.text()).toContain('立减 ¥10.00')
+  expect(first.text()).toContain('满 ¥50.00')
+  expect(first.text()).toContain('97 / 100 剩余')
+  expect(first.text()).toContain('启用中')
+  const percent = rows.find((row) => row.text().includes('KFPCT10'))!
+  expect(percent.text()).toContain('打 90%')
+  expect(percent.text()).toContain('不限')
+  expect(percent.text()).toContain('已用 8')
+  // 列表里出现的是 code，不是数据库主键，运营认的是码本身。
+  expect(wrapper.text()).not.toContain('"kind"')
+})
+
+it('新增促销码按优惠方式换算单位：立减走元、折扣走百分比', async () => {
+  mockPromos([])
+  wrapper = mounted()
+  await flushPromises()
+  clickButton(wrapper, '新增促销码')
+  await flushPromises()
+  inputByMaxLength(wrapper, 32).vm.$emit('update:value', 'kfnew100')
+  inputByMaxLength(wrapper, 100).vm.$emit('update:value', '新用户立减')
+  await flushPromises()
+  clickButton(wrapper, '保存')
+  await flushPromises()
+  expect(api).toHaveBeenCalledWith(
+    '/recharge/promo-codes',
+    expect.objectContaining({
+      method: 'POST',
+      data: expect.objectContaining({ code: 'KFNEW100', kind: 'amount_off', value: 1000 }),
+    })
+  )
+})
+
+it('停用与删除都打在服务端上，前端不自己把行从数组里抹掉', async () => {
+  mockPromos([PROMO])
+  wrapper = mounted()
+  await flushPromises()
+  vi.mocked(api).mockClear()
+  mockPromos([PROMO])
+  clickButton(wrapper, '停用')
+  await flushPromises()
+  expect(api).toHaveBeenCalledWith('/recharge/promo-codes/3', { method: 'PATCH', data: { enabled: false } })
 })

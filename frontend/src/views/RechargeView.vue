@@ -26,6 +26,8 @@ import type {
   OrderPage,
   OrderStatus,
   Page,
+  PromoKind,
+  PromoRow,
   RechargeChannelRow,
   RechargeOrderDetail,
   RechargeOrderRow,
@@ -67,18 +69,35 @@ const reviewOnly = ref(false)
 const detailOpen = ref(false)
 const detail = ref<RechargeOrderDetail | null>(null)
 
+const promos = ref<PromoRow[]>([])
+const promoOpen = ref(false)
+const promoEditing = ref<PromoRow | null>(null)
+const promoForm = reactive({
+  code: '',
+  label: '',
+  kind: 'amount_off' as PromoKind,
+  yuan: 10,
+  percent: 10,
+  min_yuan: 0,
+  max_uses: null as number | null,
+  per_account_limit: null as number | null,
+  enabled: true,
+})
+
 async function fetchAll() {
-  const [packageData, channelData, specData, orderData] = await Promise.all([
+  const [packageData, channelData, specData, orderData, promoData] = await Promise.all([
     api<Page<RechargePackageRow>>('/recharge/packages'),
     api<Page<RechargeChannelRow>>('/recharge/channels'),
     api<{ types: ChannelTypeSpec[] }>('/recharge/credential-specs'),
     api<OrderPage>(`/recharge/orders?${orderQuery()}`),
+    api<Page<PromoRow>>('/recharge/promo-codes'),
   ])
   packages.value = packageData.items
   channels.value = channelData.items
   specs.value = specData.types
   orders.value = orderData.items
   orderTotal.value = orderData.total
+  promos.value = promoData.items
 }
 
 function orderQuery() {
@@ -487,6 +506,114 @@ const orderColumns: DataTableColumns<RechargeOrderRow> = [
   },
 ]
 
+const promoKindOptions = [
+  { label: '立减固定金额', value: 'amount_off' },
+  { label: '按百分比折扣', value: 'percent' },
+]
+
+function openPromo(row?: PromoRow) {
+  promoEditing.value = row ?? null
+  promoForm.code = row?.code ?? ''
+  promoForm.label = row?.label ?? ''
+  promoForm.kind = row?.kind ?? 'amount_off'
+  promoForm.yuan = row && row.kind === 'amount_off' ? row.value / 100 : 10
+  promoForm.percent = row && row.kind === 'percent' ? row.value : 10
+  promoForm.min_yuan = (row?.min_amount_cent ?? 0) / 100
+  promoForm.max_uses = row?.max_uses ?? null
+  promoForm.per_account_limit = row?.per_account_limit ?? null
+  promoForm.enabled = row?.enabled ?? true
+  promoOpen.value = true
+}
+
+function savePromo() {
+  const body = {
+    code: promoForm.code.trim().toUpperCase(),
+    label: promoForm.label.trim(),
+    kind: promoForm.kind,
+    value: promoForm.kind === 'amount_off' ? toCent(promoForm.yuan) : promoForm.percent,
+    min_amount_cent: toCent(promoForm.min_yuan),
+    max_uses: promoForm.max_uses,
+    per_account_limit: promoForm.per_account_limit,
+    enabled: promoForm.enabled,
+  }
+  return run(async () => {
+    if (promoEditing.value) {
+      await api(`/recharge/promo-codes/${promoEditing.value.id}`, { method: 'PATCH', data: body })
+    } else {
+      await api('/recharge/promo-codes', { method: 'POST', data: body })
+    }
+    promoOpen.value = false
+    await fetchAll()
+  }, '促销码已保存')
+}
+
+function togglePromo(row: PromoRow) {
+  return run(async () => {
+    await api(`/recharge/promo-codes/${row.id}`, { method: 'PATCH', data: { enabled: !row.enabled } })
+    await fetchAll()
+  })
+}
+
+function deletePromo(row: PromoRow) {
+  dialog.warning({
+    title: '删除促销码',
+    content: `确认删除 ${row.code}？已被订单用过就只能停用。`,
+    positiveText: '删除',
+    negativeText: '取消',
+    onPositiveClick: () =>
+      run(async () => {
+        await api(`/recharge/promo-codes/${row.id}`, { method: 'DELETE' })
+        await fetchAll()
+      }, '已删除'),
+  })
+}
+
+function promoRuleText(row: PromoRow) {
+  const off = row.kind === 'amount_off' ? `立减 ${formatCent(row.value)}` : `打 ${100 - row.value}%`
+  return row.min_amount_cent ? `${off}（满 ${formatCent(row.min_amount_cent)}）` : off
+}
+
+const promoColumns: DataTableColumns<PromoRow> = [
+  { title: '促销码', key: 'code', width: 150, render: (row) => h('code', null, row.code) },
+  { title: '说明', key: 'label', minWidth: 140, render: (row) => row.label || '—' },
+  { title: '规则', key: 'rule', minWidth: 210, render: (row) => promoRuleText(row) },
+  { title: '门槛', key: 'min_amount_cent', width: 120, render: (row) => (row.min_amount_cent ? formatCent(row.min_amount_cent) : '不限') },
+  {
+    title: '名额',
+    key: 'quota',
+    width: 140,
+    render: (row) => (row.max_uses === null ? `已用 ${row.used_count}` : `${row.remaining_uses ?? 0} / ${row.max_uses} 剩余`),
+  },
+  { title: '每人', key: 'per_account_limit', width: 90, render: (row) => row.per_account_limit ?? '不限' },
+  {
+    title: '有效期',
+    key: 'window',
+    width: 190,
+    render: (row) =>
+      `${row.starts_at ? formatDate(row.starts_at) : '立即'} ~ ${row.ends_at ? formatDate(row.ends_at) : '长期'}`,
+  },
+  {
+    title: '状态',
+    key: 'promo-enabled',
+    width: 90,
+    render: (row) =>
+      h(NTag, { size: 'small', bordered: false, type: row.enabled ? 'success' : 'default' }, () =>
+        row.enabled ? '启用中' : '已停用'
+      ),
+  },
+  {
+    title: '操作',
+    key: 'promo-actions',
+    width: 190,
+    render: (row) =>
+      h(NSpace, { size: 8 }, () => [
+        h(NButton, { size: 'tiny', onClick: () => openPromo(row) }, () => '编辑'),
+        h(NButton, { size: 'tiny', onClick: () => togglePromo(row) }, () => (row.enabled ? '停用' : '启用')),
+        h(NButton, { size: 'tiny', type: 'error', ghost: true, onClick: () => deletePromo(row) }, () => '删除'),
+      ]),
+  },
+]
+
 onMounted(load)
 </script>
 
@@ -576,6 +703,82 @@ onMounted(load)
     </template>
   </section>
 
+  <section class="section">
+    <div class="page-heading">
+      <div>
+        <h1 style="font-size: 20px">促销码</h1>
+        <p>门户结算页可输入。折扣只减"实付"，不减"到账"；名额在订单真的付掉时才占用。</p>
+      </div>
+      <NButton type="primary" size="small" @click="openPromo()">新增促销码</NButton>
+    </div>
+    <NEmpty v-if="!promos.length && !busy" description="还没有促销码" />
+    <NDataTable
+      v-else
+      :columns="promoColumns"
+      :data="promos"
+      :loading="busy"
+      :row-key="(row) => row.id"
+      :bordered="false"
+      :scroll-x="1180"
+    />
+  </section>
+
+  <NModal
+    v-model:show="promoOpen"
+    preset="card"
+    :title="promoEditing ? `编辑促销码 · ${promoEditing.code}` : '新增促销码'"
+    class="modal-form"
+  >
+    <NFormItem label="促销码">
+      <NInput
+        v-model:value="promoForm.code"
+        :maxlength="32"
+        :disabled="Boolean(promoEditing)"
+        placeholder="大写字母与数字，如 KFNEW100"
+      />
+    </NFormItem>
+    <NFormItem label="活动说明"><NInput v-model:value="promoForm.label" :maxlength="100" placeholder="给用户看的名字，可留空" /></NFormItem>
+    <NFormItem label="优惠方式">
+      <NSelect v-model:value="promoForm.kind" :options="promoKindOptions" />
+    </NFormItem>
+    <NFormItem v-if="promoForm.kind === 'amount_off'" label="立减金额（元）">
+      <NInputNumber v-model:value="promoForm.yuan" :min="0.01" :max="1000000" :precision="2" style="width: 100%" />
+    </NFormItem>
+    <NFormItem v-else label="折扣（百分比）">
+      <NInputNumber v-model:value="promoForm.percent" :min="1" :max="90" :precision="0" style="width: 100%" />
+    </NFormItem>
+    <NFormItem label="单笔门槛（元）">
+      <NInputNumber v-model:value="promoForm.min_yuan" :min="0" :max="1000000" :precision="2" style="width: 100%" />
+    </NFormItem>
+    <NFormItem label="总量上限">
+      <NInputNumber
+        v-model:value="promoForm.max_uses"
+        :min="1"
+        :max="1000000"
+        :precision="0"
+        clearable
+        placeholder="不限"
+        style="width: 100%"
+      />
+    </NFormItem>
+    <NFormItem label="每人限用">
+      <NInputNumber
+        v-model:value="promoForm.per_account_limit"
+        :min="1"
+        :max="1000"
+        :precision="0"
+        clearable
+        placeholder="不限"
+        style="width: 100%"
+      />
+    </NFormItem>
+    <NFormItem label="启用"><NSwitch v-model:value="promoForm.enabled" /></NFormItem>
+    <div class="form-actions">
+      <NButton @click="promoOpen = false">取消</NButton>
+      <NButton type="primary" :loading="busy" :disabled="promoForm.code.trim().length < 2" @click="savePromo">保存</NButton>
+    </div>
+  </NModal>
+
   <NModal v-model:show="detailOpen" preset="card" title="订单明细" class="modal-form">
     <template v-if="detail">
       <div class="order-facts">
@@ -584,6 +787,7 @@ onMounted(load)
         <div><span class="muted">渠道</span>{{ detail.channel_name }}（{{ detail.channel_code }}）</div>
         <div><span class="muted">状态</span>{{ ORDER_STATUS_LABEL[detail.status] }}</div>
         <div><span class="muted">实付 / 赠送 / 到账</span>{{ formatCent(detail.amount_cent) }} / {{ formatCent(detail.bonus_cent) }} / {{ formatCent(detail.credited_cent) }}</div>
+        <div v-if="detail.discount_cent"><span class="muted">促销抵扣</span>−{{ formatCent(detail.discount_cent) }}，向厂商收 {{ formatCent(detail.payable_cent) }}</div>
         <div><span class="muted">厂商交易号</span><code>{{ detail.provider_trade_no ?? '—' }}</code></div>
         <div><span class="muted">创建 / 过期</span>{{ formatDate(detail.created_at) }} / {{ formatDate(detail.expires_at) }}</div>
         <div><span class="muted">支付时间</span>{{ formatDate(detail.paid_at) }}</div>

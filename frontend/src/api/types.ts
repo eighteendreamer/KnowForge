@@ -200,6 +200,8 @@ export interface RechargeOrderRow {
   account_username: string
   amount_cent: number
   bonus_cent: number
+  discount_cent: number
+  payable_cent: number
   credited_cent: number
   currency: string
   code_url: string | null
@@ -208,6 +210,25 @@ export interface RechargeOrderRow {
   created_at: string
   expires_at: string
   paid_at: string | null
+}
+
+export type PromoKind = 'amount_off' | 'percent'
+
+export interface PromoRow {
+  id: number
+  code: string
+  label: string
+  kind: PromoKind
+  value: number
+  min_amount_cent: number
+  starts_at: string | null
+  ends_at: string | null
+  max_uses: number | null
+  remaining_uses: number | null
+  per_account_limit: number | null
+  used_count: number
+  enabled: boolean
+  updated_at: string
 }
 
 export interface RechargeOrderDetail extends RechargeOrderRow {
