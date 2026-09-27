@@ -6,6 +6,7 @@ from sqlalchemy import or_, select
 from app.core.config import Settings
 from app.core.database import make_engine, make_session_factory
 from app.models import ProcessingTask
+from app.services.payments.reconcile import reconcile
 from app.services.pipeline import run_task
 from app.services.rebuild import run_rebuild_task
 from app.worker.celery_app import celery_app
@@ -46,3 +47,8 @@ async def pending_tasks() -> list[str]:
 def recover_pending() -> None:
     for task_id in asyncio.run(pending_tasks()):
         celery_app.send_task("knowforge.process", args=[task_id])
+
+
+@celery_app.task(name="knowforge.reconcile_orders")
+def reconcile_payment_orders() -> None:
+    asyncio.run(reconcile(Settings()))

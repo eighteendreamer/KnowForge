@@ -1,20 +1,20 @@
 from collections.abc import Mapping
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 
 import httpx
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
 from pydantic import SecretStr
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.api.deps import Session, SuperAdmin
 from app.core.errors import AppError, success
-from app.models import RechargeChannel, RechargePackage
+from app.models import Account, PaymentOrder, PaymentOrderEvent, RechargeChannel, RechargePackage
 from app.schemas.billing import ChannelInput, ChannelPatch, PackageInput
 from app.services.audit import record_audit
-from app.services.billing import channel_view, package_view
+from app.services.billing import channel_view, order_view, package_view
 from app.services.payments import credentials as channel_credentials
-from app.services.payments import specs
+from app.services.payments import reconcile, specs
 from app.services.payments.providers import registry
 from app.services.payments.providers.base import Check, ProviderError, SelfCheck
 
@@ -250,4 +250,87 @@ async def verify_channel(channel_id: int, request: Request, session: Session, us
     await session.commit()
     return success(
         {"channel_id": row.id, "channel_type": row.channel_type, "passed": result.passed, **result.view()}
+    )
+
+
+@router.get("/orders")
+async def list_orders(
+    session: Session,
+    user: SuperAdmin,
+    status: Literal["created", "pending", "paid", "expired", "failed"] | None = None,
+    channel_code: str = Query("", max_length=30),
+    q: str = Query("", max_length=64),
+    review: bool = False,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0, le=100_000),
+):
+    """订单台账。review=1 只看"厂商回执金额与订单不一致"的挂起单——它们状态仍是待支付，按状态筛不出来。"""
+    conditions = []
+    if status:
+        conditions.append(PaymentOrder.status == status)
+    if channel_code:
+        conditions.append(RechargeChannel.code == channel_code)
+    if q:
+        conditions.append(PaymentOrder.out_trade_no.ilike(f"{q}%"))
+    if review:
+        conditions.append(reconcile.awaiting_review)
+    joined = (
+        select(
+            PaymentOrder,
+            RechargeChannel.code,
+            RechargeChannel.display_name,
+            Account.username,
+        )
+        .join(RechargeChannel, RechargeChannel.id == PaymentOrder.channel_id)
+        .join(Account, Account.id == PaymentOrder.account_id)
+        .where(*conditions)
+    )
+    rows = (await session.execute(joined.order_by(PaymentOrder.id.desc()).limit(limit).offset(offset))).all()
+    total = await session.scalar(
+        select(func.count())
+        .select_from(PaymentOrder)
+        .join(RechargeChannel, RechargeChannel.id == PaymentOrder.channel_id)
+        .join(Account, Account.id == PaymentOrder.account_id)
+        .where(*conditions)
+    )
+    return success(
+        {
+            "items": [
+                {
+                    **order_view(order, name),
+                    "channel_code": code,
+                    "account_username": username,
+                    "account_id": order.account_id,
+                }
+                for order, code, name, username in rows
+            ],
+            "total": total or 0,
+            "limit": limit,
+            "offset": offset,
+        }
+    )
+
+
+@router.get("/orders/{reference}")
+async def order_detail(reference: str, session: Session, user: SuperAdmin):
+    """单张订单的时间线：钱是谁确认收到的，只看这一屏就该能回答。"""
+    order = await session.scalar(select(PaymentOrder).where(PaymentOrder.out_trade_no == reference))
+    if order is None:
+        raise AppError(404, 1001, "订单不存在")
+    channel = await session.get(RechargeChannel, order.channel_id)
+    account = await session.get(Account, order.account_id)
+    events = await session.scalars(
+        select(PaymentOrderEvent)
+        .where(PaymentOrderEvent.order_id == order.id)
+        .order_by(PaymentOrderEvent.id)
+    )
+    return success(
+        {
+            **order_view(order, channel.display_name if channel else ""),
+            "channel_code": channel.code if channel else "",
+            "account_username": account.username if account else "",
+            "events": [
+                {"kind": item.kind, "detail": item.detail, "created_at": item.created_at} for item in events
+            ],
+        }
     )
